@@ -42,3 +42,10 @@ export async function GET() {
     return NextResponse.json({ error: "Failed to fetch niches", data: [] }, { status: 500 });
   }
 }
+
+export async function PATCH() {
+  await prisma.niche.updateMany({
+    data: { active: true }
+  })
+  return NextResponse.json({ success: true })
+}

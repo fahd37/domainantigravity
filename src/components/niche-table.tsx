@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { createNiche, updateNiche, deleteNiche, activateAllNiches } from "@/app/actions/niches";
+import { createNiche, updateNiche, deleteNiche } from "@/app/actions/niches";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -52,8 +52,11 @@ export function NicheTable({ initialNiches }: { initialNiches: { id: string; dis
   };
 
   const handleActivateAll = async () => {
-    setNiches((prev) => prev.map((n) => ({ ...n, active: true })));
-    await activateAllNiches();
+    const res = await fetch('/api/niches', { method: 'PATCH' })
+    const data = await res.json()
+    if (data.success) {
+      window.location.reload()
+    }
   };
 
   return (
