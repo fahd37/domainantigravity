@@ -1,0 +1,291 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Domain {
+  id                   String       @id @default(uuid())
+  name                 String       @unique
+  niche                String
+  tld                  String
+  dr                   Float?
+  da                   Float?
+  backlinks            Int?
+  referringDomains     Int?
+  waybackPages         Int?
+  lastArchived         DateTime?
+  score                Float?
+  scoreBreakdown       Json?
+  status               DomainStatus @default(PENDING)
+  filterReason         String?
+  source               String
+  registeredAt         DateTime?
+  boughtAt             DateTime?
+  price                Float?
+  cloudflareZoneId     String?
+  createdAt            DateTime     @default(now())
+  citationFlow         Int?
+  domainAge            Int?
+  trustFlow            Int?
+  aliveRatio           Float?
+  geoDistribution      Int?
+  indexedRatio         Float?
+  linkQualityScore     Int?
+  linkVelocityRisk     Boolean?
+  linkVerdict          String?
+  relevanceRatio       Float?
+  deployedUrl          String?
+  pipelineLog          Json?
+  pipelineStatus       String?
+  anchorRelevanceRatio Float?
+  anchorScore          Int?
+  dominantAnchorTopic  String?
+  googleIndexScore     Int?
+  googleIndexed        Boolean?
+  googlePageCount      Int?
+  historicalKeywords   Json?
+  parasiteReadiness    String?
+  parasiteScore        Int?
+  peakTrafficEstimate  Int?
+  sampleIndexedUrls    String[]
+  trafficScore         Int?
+  articles             Article[]
+}
+
+model Article {
+  id              String    @id @default(uuid())
+  domainId        String
+  title           String
+  slug            String
+  content         String
+  metaDescription String?
+  keywords        String[]
+  wordCount       Int       @default(0)
+  publishedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  domain          Domain    @relation(fields: [domainId], references: [id], onDelete: Cascade)
+}
+
+model Niche {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  displayName String
+  keywords    String[]
+  targetTlds  String[]
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model ScanRun {
+  id             String    @id @default(uuid())
+  startedAt      DateTime
+  endedAt        DateTime?
+  source         String
+  domainsScanned Int       @default(0)
+  domainsPassed  Int       @default(0)
+  domainsBought  Int       @default(0)
+  totalSpent     Float     @default(0)
+  log            Json[]
+  status         String
+}
+
+model Settings {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model AuctionWatch {
+  id               String             @id @default(uuid())
+  domain           String
+  listingId        String             @unique
+  currentBid       Float              @default(0)
+  maxBid           Float
+  bidCount         Int                @default(0)
+  hoursRemaining   Float              @default(0)
+  opportunityScore Float              @default(0)
+  status           AuctionWatchStatus @default(WATCHING)
+  placedBidAt      DateTime?
+  wonAt            DateTime?
+  finalPrice       Float?
+  createdAt        DateTime           @default(now())
+}
+
+model SpyAnalysis {
+  id                String   @id @default(uuid())
+  competitorInput   String
+  discoveredDomains Json
+  patterns          Json
+  importedAsNiche   Boolean  @default(false)
+  createdAt         DateTime @default(now())
+}
+
+model Cache {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     Json
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model NicheIntelligence {
+  id                      String   @id @default(cuid())
+  slug                    String   @unique
+  displayName             String
+  avgCompetitionScore     Float
+  avgDomainAge            Float
+  avgDR                   Float
+  topResultsHaveExpired   Boolean
+  totalKeywords           Int
+  avgMonthlySearches      Int
+  topKeywordVolume        Int
+  topKeyword              String
+  avgCPC                  Float
+  affiliateAvailable      Boolean
+  avgCommission           Float
+  estimatedRPM            Float
+  monthlyRevenuePerSite   Float
+  parasiteSuccessRate     Float
+  avgTimeToRank           Int
+  expiredDomainsAvailable Int
+  indexationRate          Float
+  competitorCount         Int
+  difficulty              String
+  opportunity             String
+  topKeywords             Json
+  affiliatePrograms       Json
+  lastAnalyzed            DateTime
+  dataSource              String
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+}
+
+model NicheKeyword {
+  id            String   @id @default(cuid())
+  nicheSlug     String
+  keyword       String
+  searchVolume  Int
+  cpc           Float
+  difficulty    Int
+  trend         String
+  parasiteReady Boolean
+  language      String?
+  market        String?
+  createdAt     DateTime @default(now())
+
+  @@unique([keyword, market])
+}
+
+enum DomainStatus {
+  PENDING
+  SCORING
+  QUEUED
+  BOUGHT
+  REJECTED
+  FAILED
+}
+
+enum AuctionWatchStatus {
+  WATCHING
+  WON
+  LOST
+  OUTBID
+  EXPIRED
+}
+
+model IPTVDomain {
+  id                    String   @id @default(cuid())
+  domain                String   @unique
+  
+  // Market Intelligence
+  targetMarket          String   // US, UK, FR, DE, NL, SE, NO, DK, ALL
+  targetLanguage        String   // en, fr, de, nl, sv, no, da
+  marketScore           Float    // 0-100 market fit score
+  
+  // IPTV Specific Signals
+  iptvKeywordMatch      String[] // which iptv keywords matched
+  iptvKeywordStrength   Float    // 0-100 how strong the match
+  previouslyIPTV        Boolean  // was this domain an IPTV site before?
+  previousContent       String?  // what was it about (from Wayback)
+  channelCount          Int?     // if previous IPTV site, how many channels
+  
+  // SEO Signals
+  googleIndexed         Boolean
+  googlePageCount       Int
+  domainAge             Int      // years
+  referringDomains      Int
+  trustFlow             Float
+  citationFlow          Float
+  tfCfRatio             Float
+  
+  // Monetization Intelligence  
+  estimatedMonthly      Float    // $ per month estimate
+  affiliateMatch        String[] // which programs match
+  cpcValue              Float
+  
+  // Competitor Intelligence
+  topCompetitorDomains  String[] // similar domains that rank
+  rankingGap            String   // what's missing to outrank them
+  
+  // Multi-language Analysis
+  languageAnalysis      Json     // per-language opportunity scores
+  
+  // Scoring
+  iptvScore             Float    // 0-100 IPTV specific score
+  parasiteReadiness     String   // HIGH/MEDIUM/LOW
+  estimatedRankDays     Int      // days to rank estimate
+  
+  // Status
+  status                String   @default("PENDING")
+  recommendation        String?  // BUY/WATCH/REJECT
+  rejectionReason       String?
+  
+  // Pipeline
+  bought                Boolean  @default(false)
+  boughtAt              DateTime?
+  deployedUrl           String?
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model IPTVKeywordDatabase {
+  id          String   @id @default(cuid())
+  keyword     String
+  language    String   // en, fr, de, nl, sv, no, da
+  market      String   // US, UK, FR, DE, NL, SE, NO, DK
+  searchVolume Int
+  cpc         Float
+  difficulty  Int
+  trend       String   // UP/STABLE/DOWN
+  category    String   // provider/player/device/general/legal
+  isMoneyKw   Boolean  // high commercial intent
+  createdAt   DateTime @default(now())
+}
+
+model IPTVMarketAnalysis {
+  id              String   @id @default(cuid())
+  market          String   @unique // US, UK, FR, DE, NL, SE, NO, DK
+  language        String
+  totalKeywords   Int
+  avgCPC          Float
+  topKeyword      String
+  topKeywordVol   Int
+  competitorCount Int
+  difficulty      String
+  opportunity     String
+  expiredAvailable Int
+  successRate     Float
+  avgDaysToRank   Int
+  estimatedRPM    Float
+  topTLDs         String[] // preferred TLDs for this market
+  topKeywords     Json
+  createdAt       DateTime @default(now())
+  lastUpdated     DateTime?
+  dataSource      String    @default("seeded")
+}
