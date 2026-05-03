@@ -1,3 +1,5 @@
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Cron: runs every 6 hours — multi-source domain scan
 import { NextResponse } from "next/server";

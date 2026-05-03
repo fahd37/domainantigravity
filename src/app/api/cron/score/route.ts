@@ -1,3 +1,5 @@
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 // Cron: runs every 30 minutes — scores PENDING domains with full pipeline
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";

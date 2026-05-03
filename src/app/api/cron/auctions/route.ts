@@ -1,3 +1,5 @@
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 // Cron: every 30 min — scrapes GoDaddy auctions, scores, watches, sniper bids
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";

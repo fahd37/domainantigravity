@@ -1,3 +1,4 @@
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic'
 import { downloadWhoisDSDrops } from "@/lib/sources/whoisds"
 import { prisma } from "@/lib/prisma"

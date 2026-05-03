@@ -1,3 +1,5 @@
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 import { prisma } from '@/lib/prisma'
 import { updateAllMarkets } from '@/lib/iptv/keyword-updater'
 

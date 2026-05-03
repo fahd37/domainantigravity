@@ -1,3 +1,5 @@
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 /**
  * Server-side proxy for triggering a manual cron scan.
  * Reads CRON_SECRET on the server so it is never exposed to the browser.

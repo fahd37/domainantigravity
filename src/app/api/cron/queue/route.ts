@@ -1,3 +1,5 @@
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 // Cron: runs every 5 minutes — drains QUEUED domains through Namecheap purchase
 import { NextResponse } from "next/server";
 import { queue } from "@/lib/queue";

@@ -1,3 +1,5 @@
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 import { NextResponse } from "next/server";
 import { POST as processPreview } from "../score-preview/route";
 
