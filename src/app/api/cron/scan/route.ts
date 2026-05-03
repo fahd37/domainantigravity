@@ -1,6 +1,5 @@
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-export const maxDuration = 30
 
 import { prisma } from '@/lib/prisma'
 
@@ -9,134 +8,129 @@ export async function GET() {
   const log: string[] = []
 
   try {
-    // Use hardcoded keywords — don't wait for DB
-    const keywords = [
-      'iptv', 'streaming', 'stream', 'livetv',
-      'meilleur-iptv', 'bestes-iptv', 'beste-iptv',
-      'firestick', 'kodi', 'seo', 'marketing',
-      'ai', 'finance', 'health', 'saas'
-    ]
+    // Use Namecheap API (already configured in settings)
+    const settings = await prisma.settings.findMany()
+    const getVal = (key: string) => settings.find(s => s.key === key)?.value || ''
+    
+    const apiUser = getVal('namecheapApiUser')
+    const apiKey = getVal('namecheapApiKey')
+    const sandboxMode = getVal('namecheapSandbox') === 'true'
 
-    log.push(`Using ${keywords.length} keywords`)
+    // Keywords to search
+    const keywords = ['iptv', 'stream', 'streaming', 'livetv', 
+      'seo', 'marketing', 'ai', 'health', 'finance']
 
-    // Namecheap — most reliable on Netlify
-    for (const keyword of keywords.slice(0, 5)) {
-      try {
-        const url = `https://www.namecheap.com/domains/marketplace/buy/?q=${encodeURIComponent(keyword)}`
-        const res = await fetch(url, {
-          headers: { 'User-Agent': 'Mozilla/5.0' },
-          signal: AbortSignal.timeout(5000)
-        })
-        
-        if (!res.ok) continue
-        
-        const html = await res.text()
-        const regex = /data-domain="([a-z0-9][a-z0-9\-.]{1,61}[a-z0-9])"/gi
-        let match
-        
-        while ((match = regex.exec(html)) !== null) {
-          const domain = match[1].toLowerCase()
-          if (!domain || domain.length < 4) continue
-          
-          // SAVE IMMEDIATELY
-          try {
-            await prisma.domain.upsert({
-              where: { name: domain },
-              update: {},
-              create: {
-                name: domain,
-                tld: '.' + domain.split('.').pop(),
-                status: 'PENDING',
-                source: 'namecheap-market',
-                niche: 'unknown',
-                score: 0
-              }
-            })
-            saved++
-          } catch {}
-        }
-        
-        log.push(`${keyword}: saved ${saved} so far`)
-        
-      } catch (e) {
-        log.push(`${keyword} failed: ${String(e).slice(0, 50)}`)
-      }
-    }
-
-    // Also try ExpiredDomains
-    try {
-      const res = await fetch(
-        'https://www.expireddomains.net/domain-search/?q=iptv&ftlds[]=com&ftlds[]=fr',
-        {
-          headers: { 
-            'User-Agent': 'Mozilla/5.0',
-            'Referer': 'https://www.expireddomains.net'
-          },
-          signal: AbortSignal.timeout(6000)
-        }
-      )
+    if (!apiKey || !apiUser) {
+      log.push('Namecheap not configured — using GoDaddy RSS feed')
       
-      if (res.ok) {
-        const html = await res.text()
-        const rows = html.match(/<td class="field_domain"[^>]*>.*?<\/td>/gs) || []
-        
-        for (const row of rows.slice(0, 20)) {
-          const domainMatch = row.match(/>([a-z0-9][a-z0-9.-]+\.[a-z]{2,})</)
-          if (!domainMatch) continue
-          const domain = domainMatch[1].toLowerCase()
+      // GoDaddy expiring domains RSS — works without auth
+      for (const keyword of keywords.slice(0, 5)) {
+        try {
+          const url = `https://auctions.godaddy.com/trpSearch.aspx?q=${keyword}&searchType=phrase&status=2&rss=1`
+          const res = await fetch(url, {
+            headers: { 'User-Agent': 'Mozilla/5.0' },
+            signal: AbortSignal.timeout(8000)
+          })
           
-          try {
-            await prisma.domain.upsert({
-              where: { name: domain },
-              update: {},
-              create: {
-                name: domain,
-                tld: '.' + domain.split('.').pop(),
-                status: 'PENDING', 
-                source: 'expireddomains',
-                niche: 'unknown',
-                score: 0
-              }
-            })
-            saved++
-          } catch {}
+          if (!res.ok) {
+            log.push(`GoDaddy ${keyword}: ${res.status}`)
+            continue
+          }
+          
+          const xml = await res.text()
+          const titles = xml.match(/<title>([^<]+\.[a-z]{2,})<\/title>/gi) || []
+          
+          for (const title of titles.slice(0, 10)) {
+            const domain = title.replace(/<\/?title>/gi, '').trim().toLowerCase()
+            if (!domain.includes('.') || domain.includes('godaddy')) continue
+            
+            try {
+              await prisma.domain.upsert({
+                where: { name: domain },
+                update: {},
+                create: {
+                  name: domain,
+                  tld: '.' + domain.split('.').pop(),
+                  status: 'PENDING',
+                  source: 'godaddy-rss',
+                  niche: 'unknown',
+                  score: 0
+                }
+              })
+              saved++
+            } catch {}
+          }
+          
+          log.push(`GoDaddy ${keyword}: ${titles.length} found, total saved: ${saved}`)
+          await new Promise(r => setTimeout(r, 1000))
+          
+        } catch (e) {
+          log.push(`GoDaddy ${keyword} error: ${String(e).slice(0, 80)}`)
         }
-        log.push(`ExpiredDomains: ${rows.length} rows found`)
       }
-    } catch (e) {
-      log.push(`ExpiredDomains failed: ${String(e).slice(0, 50)}`)
+    } else {
+      // Use Namecheap marketplace API
+      log.push('Using Namecheap API')
+      const base = sandboxMode 
+        ? 'https://api.sandbox.namecheap.com' 
+        : 'https://api.namecheap.com'
+      
+      for (const keyword of keywords.slice(0, 5)) {
+        try {
+          const url = `${base}/xml.response?ApiUser=${apiUser}&ApiKey=${apiKey}&UserName=${apiUser}&Command=namecheap.domains.check&ClientIp=1.1.1.1&DomainList=${keyword}.com,${keyword}.net,${keyword}.io,${keyword}.de,${keyword}.fr`
+          
+          const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
+          const xml = await res.text()
+          
+          const available = xml.match(/Domain="([^"]+)" Available="true"/gi) || []
+          
+          for (const match of available) {
+            const domainMatch = match.match(/Domain="([^"]+)"/)
+            if (!domainMatch) continue
+            const domain = domainMatch[1].toLowerCase()
+            
+            try {
+              await prisma.domain.upsert({
+                where: { name: domain },
+                update: {},
+                create: {
+                  name: domain,
+                  tld: '.' + domain.split('.').pop(),
+                  status: 'PENDING',
+                  source: 'namecheap-api',
+                  niche: 'unknown',
+                  score: 0
+                }
+              })
+              saved++
+            } catch {}
+          }
+          log.push(`${keyword}: ${available.length} available`)
+        } catch (e) {
+          log.push(`${keyword}: ${String(e).slice(0, 50)}`)
+        }
+      }
     }
 
-    // Log scan run
-    try {
-      await prisma.scanRun.create({
-        data: {
-          startedAt: new Date(),
-          endedAt: new Date(),
-          source: 'namecheap+expired',
-          domainsScanned: saved,
-          domainsPassed: saved,
-          domainsBought: 0,
-          totalSpent: 0,
-          status: 'COMPLETED',
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          log: log as any
-        }
-      })
-    } catch {}
+    // Always save scan run
+    await prisma.scanRun.create({
+      data: {
+        startedAt: new Date(),
+        endedAt: new Date(),
+        source: 'auto-scan',
+        domainsScanned: saved,
+        domainsPassed: saved,
+        domainsBought: 0,
+        totalSpent: 0,
+        status: 'COMPLETED',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        log: log as any
+      }
+    }).catch(() => {})
 
-    return Response.json({
-      success: true,
-      domainsFound: saved,
-      domainsSaved: saved,
-      log
-    })
+    return Response.json({ success: true, domainsFound: saved, domainsSaved: saved, log })
 
   } catch (error) {
-    return Response.json({
-      success: false,
-      error: String(error),
-      log
-    }, { status: 500 })
+    return Response.json({ success: false, error: String(error), log }, { status: 500 })
   }
 }
