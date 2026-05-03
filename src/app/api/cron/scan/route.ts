@@ -3,12 +3,12 @@ export const dynamic = 'force-dynamic'
 
 import { prisma } from "@/lib/prisma"
 
-export async function GET(request: Request) {
+export async function GET(_request: Request) {
   const log: string[] = []
   
   try {
     // Load niches
-    let niches = []
+    let niches: { keywords: string[] }[] = []
     try {
       niches = await prisma.niche.findMany({ where: { active: true } })
       log.push(`Loaded ${niches.length} niches`)
@@ -58,6 +58,7 @@ export async function GET(request: Request) {
           update: {},
           create: {
             name: domain,
+            tld: '.' + domain.split('.').pop(),
             status: 'PENDING',
             source: 'expireddomains',
             niche: 'unknown',
