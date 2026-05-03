@@ -44,8 +44,15 @@ export async function GET() {
 }
 
 export async function PATCH() {
-  await prisma.niche.updateMany({
-    data: { active: true }
-  })
-  return NextResponse.json({ success: true })
+  try {
+    console.log("Activating all niches via API route...");
+    const result = await prisma.niche.updateMany({
+      data: { active: true }
+    });
+    console.log("Activate all niches result:", result);
+    return NextResponse.json({ success: true, count: result.count });
+  } catch (error) {
+    console.error("Failed to activate all niches in API route:", error);
+    return NextResponse.json({ error: String(error) }, { status: 500 });
+  }
 }

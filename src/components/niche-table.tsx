@@ -30,7 +30,12 @@ export function NicheTable({ initialNiches }: { initialNiches: { id: string; dis
 
   const handleToggleActive = async (id: string, active: boolean) => {
     setNiches((prev) => prev.map((n) => (n.id === id ? { ...n, active } : n)));
-    await updateNiche(id, { active });
+    console.log("Client: calling updateNiche for", id, "setting active:", active);
+    const result = await updateNiche(id, { active });
+    console.log("Client: updateNiche result:", result);
+    if (result?.error) {
+      alert(`Failed to update niche: ${result.error}`);
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -52,10 +57,19 @@ export function NicheTable({ initialNiches }: { initialNiches: { id: string; dis
   };
 
   const handleActivateAll = async () => {
-    const res = await fetch('/api/niches', { method: 'PATCH' })
-    const data = await res.json()
-    if (data.success) {
-      window.location.reload()
+    try {
+      console.log("Client: calling PATCH /api/niches");
+      const res = await fetch('/api/niches', { method: 'PATCH' })
+      const data = await res.json()
+      console.log("Client: PATCH /api/niches result:", data);
+      if (data.success) {
+        window.location.reload()
+      } else {
+        alert(`Failed to activate all niches: ${data.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error("Client: failed to call PATCH /api/niches", error);
+      alert(`Failed to activate all niches: ${String(error)}`);
     }
   };
 

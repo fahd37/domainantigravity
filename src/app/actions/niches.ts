@@ -16,12 +16,14 @@ export async function createNiche(data: { displayName: string; slug: string; key
 
 export async function updateNiche(id: string, data: Partial<{ displayName: string; slug: string; keywords: string[]; targetTlds: string[]; active: boolean; }>) {
   try {
-    await prisma.niche.update({ where: { id }, data });
+    console.log("Updating niche via Server Action:", id, data);
+    const result = await prisma.niche.update({ where: { id }, data });
+    console.log("Update niche result:", result);
     revalidatePath("/settings/niches");
     return { success: true };
   } catch (error) {
-    console.error("Failed to update niche:", error);
-    return { error: "Failed to update niche" };
+    console.error(`Failed to update niche ${id}:`, error);
+    return { error: String(error) };
   }
 }
 
