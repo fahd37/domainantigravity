@@ -126,8 +126,9 @@ export default function DashboardPage() {
         }
       });
       const data = await res.json();
-      if (!res.ok) {
-        alert(`Scan failed: ${data.error || 'Unknown error'}`);
+      if (!data.success || !res.ok) {
+        const errorMsg = data.log?.join('\n') || data.error || 'Unknown error';
+        alert(`Scan failed:\n${errorMsg}`);
       } else {
         alert(`Scan complete — ${data.domainsFound || 0} domains found, ${data.domainsSaved || 0} saved`);
         await fetchAll();
