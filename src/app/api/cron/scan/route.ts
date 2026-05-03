@@ -17,7 +17,19 @@ export async function GET(_request: Request) {
       // Continue with empty niches
     }
 
-    const allKeywords = niches.flatMap(n => n.keywords || [])
+    let allKeywords = niches.flatMap(n => n.keywords || [])
+
+    // FALLBACK: if no keywords from DB use hardcoded IPTV defaults
+    if (allKeywords.length === 0) {
+      allKeywords = [
+        'iptv', 'streaming', 'stream', 'livetv', 'tvbox',
+        'meilleur-iptv', 'bestes-iptv', 'beste-iptv',
+        'firestick', 'kodi', 'channels', 'playlist',
+        'seo', 'marketing', 'ai', 'finance', 'health'
+      ]
+      log.push('Using fallback keywords — no active niches in DB')
+    }
+
     log.push(`Keywords: ${allKeywords.length}`)
 
     // Try ExpiredDomains only (most compatible)
