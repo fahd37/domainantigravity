@@ -73,18 +73,42 @@ export function NicheTable({ initialNiches }: { initialNiches: { id: string; dis
     }
   };
 
+  const handleSeedAll = async () => {
+    if (!confirm('This will upsert all 30 niches with full keyword sets. Continue?')) return;
+    try {
+      const res = await fetch('/api/niches/seed')
+      const data = await res.json()
+      if (data.success) {
+        alert(`✅ Seeded ${data.seeded} niches successfully!`);
+        window.location.reload()
+      } else {
+        alert(`Seed failed: ${data.error}`);
+      }
+    } catch (error) {
+      alert(`Seed failed: ${String(error)}`);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Add Niche Card */}
       <div className="rounded-xl border bg-card text-card-foreground shadow-sm p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold leading-none tracking-tight">Add New Niche</h3>
-          <button
-            onClick={handleActivateAll}
-            className="inline-flex h-8 items-center justify-center rounded-md bg-secondary px-4 text-xs font-medium hover:bg-secondary/80"
-          >
-            Activate All
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSeedAll}
+              className="inline-flex h-8 items-center justify-center rounded-md bg-blue-600 text-white px-4 text-xs font-medium hover:bg-blue-700"
+            >
+              🌱 Seed All 30 Niches
+            </button>
+            <button
+              onClick={handleActivateAll}
+              className="inline-flex h-8 items-center justify-center rounded-md bg-secondary px-4 text-xs font-medium hover:bg-secondary/80"
+            >
+              ✅ Activate All
+            </button>
+          </div>
         </div>
         <div className="flex gap-4 items-end">
           <div className="space-y-2 flex-1">
