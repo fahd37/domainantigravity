@@ -71,6 +71,7 @@ export default function DashboardPage() {
   const [togglingKill, setTogglingKill] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [topNiches, setTopNiches] = useState<Array<{displayName:string;parasiteSuccessRate:number;avgTimeToRank:number;opportunity:string;slug:string}>>([]);
+  const [apiConfigured, setApiConfigured] = useState({ whoisfreaks: true, dataforseo: false, googleIndex: false, wayback: true });
 
   const fetchAll = useCallback(async () => {
     const [statsRes, statusRes] = await Promise.allSettled([
@@ -102,6 +103,21 @@ export default function DashboardPage() {
   useEffect(() => {
     fetch('/api/niche-intelligence').then(r => r.json()).then(j => {
       if (j.niches) setTopNiches(j.niches.filter((n: {opportunity:string}) => n.opportunity === 'HOT').slice(0, 3));
+    }).catch(() => {});
+  }, []);
+
+  // Check which APIs are configured in settings
+  useEffect(() => {
+    fetch('/api/settings').then(r => r.json()).then(j => {
+      if (j.data) {
+        const d = j.data;
+        setApiConfigured({
+          whoisfreaks: !!(d.whoisfreaksApiKey),
+          dataforseo:  !!(d.dfs_email || d.dataForSeoEmail) && !!(d.dfs_password || d.dataForSeoPassword),
+          googleIndex: !!(d.google_sa_key),
+          wayback:     true, // Wayback is always free / always active
+        });
+      }
     }).catch(() => {});
   }, []);
 
@@ -304,63 +320,67 @@ export default function DashboardPage() {
             ))}
           </div>
 
-          {/* Sources active */}
+          {/* Sources Active */}
           <div>
             <div className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Sources Active</div>
             <div className="flex flex-wrap gap-2 items-center">
               {[
-                { 
-                  key: 'whoisds', 
-                  label: 'WhoisDS', 
-                  active: status?.lastScan?.startedAt ? (Date.now() - new Date(status.lastScan.startedAt).getTime() < 24 * 3600 * 1000) : false 
-                },
-                { key: 'certStream', label: 'CertStream', active: false },
-                { key: 'expiredDomains', label: 'ExpiredDomains', active: true },
-                { key: 'godaddy', label: 'GoDaddy', active: true }
+                { key: 'whoisfreaks',  label: 'WhoisFreaks',  active: apiConfigured.whoisfreaks,  tip: 'Dropped domain feed — requires API key' },
+                { key: 'dataforseo',   label: 'DataForSEO',   active: apiConfigured.dataforseo,   tip: 'SEO scoring — requires email + password' },
+                { key: 'googleIndex',  label: 'Google Index', active: apiConfigured.googleIndex,  tip: 'Index check — requires Google SA key' },
+                { key: 'wayback',      label: 'Wayback',      active: apiConfigured.wayback,      tip: 'Historical analysis — always active' },
               ].map(src => (
-                <span key={src.key} className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium ${src.active ? "bg-green-500/15 text-green-500" : "bg-muted text-muted-foreground"}`}>
-                  <span className={`h-1.5 w-1.5 rounded-full ${src.active ? "bg-green-500" : "bg-red-500"}`} />
-                  {src.label} {src.active ? "✅" : "❌"}
+                <span
+                  key={src.key}
+                  title={src.tip}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${
+                    src.active
+                      ? 'bg-green-500/15 text-green-400 border-green-500/30'
+                      : 'bg-red-500/10 text-red-400 border-red-500/20'
+                  }`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${src.active ? 'bg-green-500' : 'bg-red-500'}`} />
+                  {src.label} {src.active ? '✅' : '❌'}
                 </span>
               ))}
             </div>
             {status?.lastScan && (
               <div className="text-xs text-muted-foreground mt-2">
-                Last WhoisDS download: {timeAgo(status.lastScan.startedAt)} · {status.lastScan.domainsFound} domains found in last scan
+                Last scan: {timeAgo(status.lastScan.startedAt)} · {status.lastScan.domainsFound ?? 0} domains found
               </div>
             )}
           </div>
 
-          {/* WhoisDS Status Display (Fix 3) */}
+          {/* WhoisFreaks Status Panel */}
           <div className="rounded-lg bg-muted/20 p-4 border border-muted-foreground/10">
             <div className="text-sm font-bold text-primary mb-3 uppercase tracking-wider flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-              WhoisDS Status
+              <span className={`h-2 w-2 rounded-full ${apiConfigured.whoisfreaks ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+              WhoisFreaks + DataForSEO Pipeline
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">Last Successful Download</div>
-                <div className="text-sm font-mono font-bold">
-                  {stats.whoisdsStatus?.lastDownload 
-                    ? new Date(stats.whoisdsStatus.lastDownload).toLocaleString()
-                    : 'Never'}
+                <div className="text-xs text-muted-foreground">Pipeline Source</div>
+                <div className="text-sm font-mono font-bold text-green-400">WhoisFreaks Drops</div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-xs text-muted-foreground">Scoring Engine</div>
+                <div className={`text-sm font-mono font-bold ${apiConfigured.dataforseo ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {apiConfigured.dataforseo ? 'DataForSEO Active' : 'DataForSEO — Not configured'}
                 </div>
               </div>
               <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">Domains Loaded</div>
+                <div className="text-xs text-muted-foreground">Last Scan</div>
                 <div className="text-sm font-mono font-bold">
-                  {(stats.whoisdsStatus?.domainsLoaded ?? 0).toLocaleString()}
-                </div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">Next Retry</div>
-                <div className="text-sm font-mono font-bold text-blue-400">
-                  {stats.whoisdsStatus?.nextRetry 
-                    ? new Date(stats.whoisdsStatus.nextRetry).toLocaleTimeString()
-                    : 'Unknown'}
+                  {status?.lastScan ? timeAgo(status.lastScan.startedAt) : 'Never'}
                 </div>
               </div>
             </div>
+            {!apiConfigured.dataforseo && (
+              <div className="mt-3 text-xs text-yellow-400 bg-yellow-500/10 rounded p-2 border border-yellow-500/20">
+                ⚠️ DataForSEO not configured — domains will be saved without SEO scores.
+                <a href="/settings" className="underline ml-1 font-semibold">Configure in Settings →</a>
+              </div>
+            )}
           </div>
 
           {/* Rate limit status */}

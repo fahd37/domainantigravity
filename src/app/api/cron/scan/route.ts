@@ -20,6 +20,9 @@ export async function GET() {
     const dataForSeoEmail = getVal('dataForSeoEmail') || getVal('dfs_email')
     const dataForSeoPassword = getVal('dataForSeoPassword') || getVal('dfs_password')
     
+    // Auto-activate all niches so keyword pool is never empty
+    await prisma.niche.updateMany({ data: { active: true } })
+    
     // Load active niches + keywords
     const niches = await prisma.niche.findMany({ where: { active: true } })
     const keywords = niches.flatMap(n => n.keywords || [])

@@ -61,10 +61,15 @@ export default function HuntPage() {
       .then(res => res.json())
       .then(json => {
         if (json.data) {
-          setMissingApis({
-            dfs: !json.data.dataForSeoEmail || !json.data.dataForSeoPassword,
-            namecheap: !json.data.namecheapUser || !json.data.namecheapApiKey
-          });
+          console.log('Settings keys:', Object.keys(json.data));
+          // Keys match what settings-form.tsx saves:
+          // dfs_email / dfs_password for DataForSEO
+          // nc_api_user / nc_api_key for Namecheap
+          const hasDfs = !!(json.data.dfs_email || json.data.dataForSeoEmail) &&
+                         !!(json.data.dfs_password || json.data.dataForSeoPassword);
+          const hasNc  = !!(json.data.nc_api_user || json.data.namecheapUser) &&
+                         !!(json.data.nc_api_key  || json.data.namecheapApiKey);
+          setMissingApis({ dfs: !hasDfs, namecheap: !hasNc });
         }
       })
       .catch(console.error);
