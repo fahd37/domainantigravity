@@ -1,8 +1,9 @@
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 import { prisma } from '@/lib/prisma'
-import { fetchExpiredDomains } from '@/lib/sources/whoisds'
+import { downloadWhoisDSDrops } from '@/lib/sources/whoisds'
 
 export async function GET() {
   let saved = 0
@@ -17,22 +18,23 @@ export async function GET() {
       'ai', 'seo', 'marketing', 'health', 'finance'
     ]
     
-    log.push(`Searching with ${fallbackKeywords.length} keywords`)
+    log.push(`Searching with ${fallbackKeywords.length} keywords: ${fallbackKeywords.slice(0, 5).join(', ')}`)
+    console.log('SCAN: Starting with keywords:', fallbackKeywords)
     
-    const domains = await fetchExpiredDomains(fallbackKeywords)
-    log.push(`Found ${domains.length} matching domains`)
+    const domains = await downloadWhoisDSDrops(fallbackKeywords)
+    log.push(`WhoisDS/sources returned: ${domains.length} domains`)
+    console.log('SCAN LOG:', log)
 
     for (const d of domains) {
       try {
-        const domainName = d.domain;
-        const exists = await prisma.domain.findFirst({ where: { name: domainName } })
+        const exists = await prisma.domain.findFirst({ where: { name: d.domain } })
         if (exists) continue
         await prisma.domain.create({
           data: {
-            name: domainName,
-            tld: '.' + domainName.split('.').pop(),
+            name: d.domain,
+            tld: '.' + d.domain.split('.').pop(),
             status: 'PENDING',
-            source: 'expired-scan',
+            source: d.source || 'expired-scan',
             niche: 'unknown',
             score: 0
           }
@@ -42,7 +44,9 @@ export async function GET() {
     }
 
     log.push(`Saved ${saved} new domains`)
+    console.log('SCAN COMPLETE:', { domainsFound: domains.length, saved })
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await prisma.scanRun.create({
       data: {
         startedAt: new Date(),
@@ -66,6 +70,7 @@ export async function GET() {
     })
 
   } catch (error) {
+    console.error('SCAN FATAL:', error)
     return Response.json({
       success: false,
       error: String(error),
