@@ -2,8 +2,7 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 import { prisma } from '@/lib/prisma'
-import { fetchDroppedDomains, filterByKeywords } from '@/lib/sources/whoisfreaks'
-import { scoreDomainsWithDataForSEO } from '@/lib/sources/dataforseo-domains'
+import { searchDroppedDomains } from '@/lib/sources/whoisfreaks'
 
 export async function GET() {
   let saved = 0
@@ -11,181 +10,184 @@ export async function GET() {
   const startTime = Date.now()
 
   try {
+    // Auto-activate all niches
+    await prisma.niche.updateMany({ data: { active: true } })
+    
     // Load settings
     const settings = await prisma.settings.findMany()
     const getVal = (key: string) => settings.find(s => s.key === key)?.value || ''
     
     const whoisfreaksKey = getVal('whoisfreaksApiKey') || '53598576e194490dbd84cab0afc953b1'
-    // Support both key naming conventions
-    const dataForSeoEmail = getVal('dataForSeoEmail') || getVal('dfs_email')
-    const dataForSeoPassword = getVal('dataForSeoPassword') || getVal('dfs_password')
+    const dataForSeoEmail = getVal('dataForSeoEmail')
+    const dataForSeoPassword = getVal('dataForSeoPassword')
     
-    // Auto-activate all niches so keyword pool is never empty
-    await prisma.niche.updateMany({ data: { active: true } })
-    
-    // Load active niches + keywords
+    // Load keywords from active niches
     const niches = await prisma.niche.findMany({ where: { active: true } })
-    const keywords = niches.flatMap(n => n.keywords || [])
-    const activeKeywords = keywords.length > 0 ? keywords : [
-      'iptv', 'stream', 'streaming', 'livetv', 'tvbox',
-      'ai', 'aitools', 'machinelearning', 'chatgpt',
+    const keywords = niches.flatMap(n => {
+      const kws = n.keywords
+      return Array.isArray(kws) ? kws : typeof kws === 'string' ? (kws as string).split(',').map((k: string) => k.trim()) : []
+    }).filter((k: string) => k.length >= 2)
+    
+    const activeKeywords = keywords.length > 0 ? [...new Set(keywords)].slice(0, 25) : [
+      'iptv', 'streaming', 'livetv', 'tvbox',
+      'ai', 'aitools', 'machinelearning',
       'seo', 'marketing', 'digitalmarketing',
-      'health', 'wellness', 'fitness', 'nutrition',
-      'finance', 'crypto', 'investing', 'trading',
+      'health', 'wellness', 'fitness',
+      'finance', 'crypto', 'investing',
       'saas', 'software', 'tools'
     ]
-    
-    log.push(`Step 1: Loading dropped domains from WhoisFreaks...`)
-    log.push(`Using ${activeKeywords.length} keywords`)
-    
-    // STEP 1: WhoisFreaks — get today's dropped domains
-    const allDomains = await fetchDroppedDomains(whoisfreaksKey)
-    log.push(`WhoisFreaks returned: ${allDomains.length} total domains`)
-    
-    if (allDomains.length === 0) {
-      log.push('WARNING: WhoisFreaks returned 0 domains — check API key or try later')
+
+    log.push(`Step 1: Searching WhoisFreaks with ${activeKeywords.length} keywords`)
+    console.log('SCAN START:', activeKeywords)
+
+    // STEP 1: WhoisFreaks — search dropped domains by keyword
+    const droppedDomains = await searchDroppedDomains(activeKeywords, whoisfreaksKey)
+    log.push(`WhoisFreaks found: ${droppedDomains.length} dropped domains`)
+    console.log(`SCAN: WhoisFreaks returned ${droppedDomains.length} domains`)
+
+    if (droppedDomains.length === 0) {
+      log.push('No domains found — check API key and credits')
       
       await prisma.scanRun.create({
         data: {
-          startedAt: new Date(startTime),
-          endedAt: new Date(),
-          source: 'whoisfreaks',
-          domainsScanned: 0,
-          domainsPassed: 0,
-          domainsBought: 0,
-          totalSpent: 0,
-          status: 'EMPTY',
-          log: log as any // eslint-disable-line @typescript-eslint/no-explicit-any
+          startedAt: new Date(startTime), endedAt: new Date(),
+          source: 'whoisfreaks-search', domainsScanned: 0,
+          domainsPassed: 0, domainsBought: 0, totalSpent: 0,
+          status: 'EMPTY', log: log as any
         }
       }).catch(() => {})
       
       return Response.json({ success: true, domainsFound: 0, domainsSaved: 0, log })
     }
-    
-    // STEP 2: Filter by niche keywords
-    log.push(`Step 2: Filtering by ${activeKeywords.length} niche keywords...`)
-    const nicheMatches = filterByKeywords(allDomains, activeKeywords)
-    log.push(`Keyword matches: ${nicheMatches.length} domains`)
-    
-    if (nicheMatches.length === 0) {
-      log.push("No keyword matches found in today's drops")
-      
-      await prisma.scanRun.create({
-        data: {
-          startedAt: new Date(startTime),
-          endedAt: new Date(),
-          source: 'whoisfreaks',
-          domainsScanned: allDomains.length,
-          domainsPassed: 0,
-          domainsBought: 0,
-          totalSpent: 0,
-          status: 'NO_MATCHES',
-          log: log as any // eslint-disable-line @typescript-eslint/no-explicit-any
-        }
-      }).catch(() => {})
-      
-      return Response.json({ 
-        success: true, 
-        domainsFound: allDomains.length, 
-        nicheMatches: 0,
-        domainsSaved: 0, 
-        log 
-      })
-    }
-    
-    // STEP 3: Score top candidates with DataForSEO
-    const candidateDomains = nicheMatches.slice(0, 200).map(m => m.domain)
-    
-    let scoredDomains = new Map()
+
+    // STEP 2: Score with DataForSEO (if configured)
+    const candidates = droppedDomains.slice(0, 200)
     
     if (dataForSeoEmail && dataForSeoPassword) {
-      log.push(`Step 3: Scoring ${candidateDomains.length} candidates with DataForSEO...`)
-      scoredDomains = await scoreDomainsWithDataForSEO(candidateDomains, dataForSeoEmail, dataForSeoPassword)
-      log.push(`DataForSEO scored: ${scoredDomains.size} domains`)
-    } else {
-      log.push('Step 3: DataForSEO not configured — saving all matches without scores')
-    }
-    
-    // STEP 4: Save to database
-    log.push(`Step 4: Saving domains to database...`)
-    
-    for (const match of nicheMatches) {
-      try {
-        const score = scoredDomains.get(match.domain)
-        
-        // Calculate basic quality score
-        let qualityScore = 0
-        if (score) {
-          // Traffic score (max 40)
-          qualityScore += Math.min(40, (score.organicTraffic / 100) * 10)
-          // Keywords score (max 25)
-          qualityScore += Math.min(25, score.organicKeywords * 0.5)
-          // Backlinks score (max 20)
-          qualityScore += Math.min(20, score.referringDomains * 0.5)
-          // Age score (max 15)
-          qualityScore += Math.min(15, score.ageYears * 2)
-        }
-        
-        await prisma.domain.upsert({
-          where: { name: match.domain },
-          update: {
-            score: Math.round(qualityScore),
-          },
-          create: {
-            name: match.domain,
-            status: qualityScore >= 60 ? 'QUEUED' : 'PENDING',
-            source: 'whoisfreaks+dataforseo',
-            niche: match.matchedKeyword,
-            score: Math.round(qualityScore),
-            referringDomains: score?.referringDomains || 0,
-            domainAge: score?.ageYears || 0,
+      log.push(`Step 2: Scoring ${candidates.length} domains with DataForSEO`)
+      const auth = Buffer.from(`${dataForSeoEmail}:${dataForSeoPassword}`).toString('base64')
+      
+      for (const candidate of candidates) {
+        try {
+          const res = await fetch(
+            'https://api.dataforseo.com/v3/domain_analytics/whois/overview/live',
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Basic ${auth}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify([{
+                limit: 1,
+                filters: [["domain", "=", candidate.domain]]
+              }]),
+              signal: AbortSignal.timeout(10000)
+            }
+          )
+          
+          if (res.ok) {
+            const data = await res.json()
+            const item = data?.tasks?.[0]?.result?.[0]?.items?.[0]
+            
+            if (item) {
+              let score = 0
+              const traffic = item.metrics?.organic?.etv || 0
+              const keywords = item.metrics?.organic?.count || 0
+              const refs = item.backlinks_info?.referring_domains || 0
+              const created = item.created_datetime
+              const age = created ? Math.floor((Date.now() - new Date(created).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : 0
+              
+              score += Math.min(40, (traffic / 100) * 10)
+              score += Math.min(25, keywords * 0.5)
+              score += Math.min(20, refs * 0.5)
+              score += Math.min(15, age * 2)
+              
+              await prisma.domain.upsert({
+                where: { name: candidate.domain },
+                update: { score: Math.round(score), updatedAt: new Date() },
+                create: {
+                  name: candidate.domain,
+                  status: score >= 60 ? 'QUEUED' : 'PENDING',
+                  source: 'whoisfreaks+dataforseo',
+                  niche: candidate.matchedKeyword,
+                  score: Math.round(score),
+                  referringDomains: refs,
+                  domainAge: age
+                }
+              })
+              saved++
+              
+              if (score > 0) {
+                console.log(`SCORED: ${candidate.domain} → ${Math.round(score)}pts (traffic=$${traffic}, kw=${keywords}, refs=${refs}, age=${age}yr)`)
+              }
+            }
           }
-        })
-        saved++
-        
-      } catch {
-        // Skip duplicates or errors silently
+          
+          await new Promise(r => setTimeout(r, 200))
+          
+        } catch (e) {
+          // Save without score
+          try {
+            await prisma.domain.upsert({
+              where: { name: candidate.domain },
+              update: {},
+              create: {
+                name: candidate.domain,
+                status: 'PENDING',
+                source: 'whoisfreaks',
+                niche: candidate.matchedKeyword,
+                score: 0
+              }
+            })
+            saved++
+          } catch {}
+        }
+      }
+    } else {
+      // No DataForSEO — save all without scores
+      log.push('Step 2: DataForSEO not configured — saving without scores')
+      for (const candidate of candidates) {
+        try {
+          await prisma.domain.upsert({
+            where: { name: candidate.domain },
+            update: {},
+            create: {
+              name: candidate.domain,
+              status: 'PENDING',
+              source: 'whoisfreaks',
+              niche: candidate.matchedKeyword,
+              score: 0
+            }
+          })
+          saved++
+        } catch {}
       }
     }
-    
-    log.push(`Saved: ${saved} domains to database`)
-    
+
+    log.push(`Saved: ${saved} domains`)
     const elapsed = Math.round((Date.now() - startTime) / 1000)
-    log.push(`Scan completed in ${elapsed} seconds`)
-    
-    // Save scan run
+    log.push(`Done in ${elapsed}s`)
+
     await prisma.scanRun.create({
       data: {
-        startedAt: new Date(startTime),
-        endedAt: new Date(),
-        source: 'whoisfreaks+dataforseo',
-        domainsScanned: allDomains.length,
-        domainsPassed: saved,
-        domainsBought: 0,
-        totalSpent: 0,
-        status: 'COMPLETED',
-        log: log as any // eslint-disable-line @typescript-eslint/no-explicit-any
+        startedAt: new Date(startTime), endedAt: new Date(),
+        source: 'whoisfreaks+dataforseo', domainsScanned: droppedDomains.length,
+        domainsPassed: saved, domainsBought: 0, totalSpent: 0,
+        status: 'COMPLETED', log: log as any
       }
     }).catch(() => {})
-    
+
     return Response.json({
       success: true,
-      domainsFound: allDomains.length,
-      nicheMatches: nicheMatches.length,
-      scored: scoredDomains.size,
+      domainsFound: droppedDomains.length,
       domainsSaved: saved,
       elapsed: `${elapsed}s`,
       log
     })
-    
+
   } catch (error) {
-    log.push(`FATAL ERROR: ${String(error)}`)
-    console.error('Scan error:', error)
-    
-    return Response.json({
-      success: false,
-      error: String(error),
-      log
-    }, { status: 500 })
+    log.push(`ERROR: ${String(error)}`)
+    console.error('SCAN ERROR:', error)
+    return Response.json({ success: false, error: String(error), log }, { status: 500 })
   }
 }

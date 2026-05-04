@@ -1,135 +1,128 @@
-export async function fetchDroppedDomains(apiKey: string): Promise<string[]> {
-  const domains: string[] = []
-  
-  // Try today and yesterday
-  const dates = [0, 1].map(daysAgo => {
-    const d = new Date()
-    d.setDate(d.getDate() - daysAgo)
-    return d.toISOString().split('T')[0]
-  })
+// WhoisFreaks Dropped Domain Search API — FREE with 500 credits
+// This searches their 100M+ database of dropped domains by keyword
 
-  for (const date of dates) {
+export async function searchDroppedDomains(
+  keywords: string[],
+  apiKey: string
+): Promise<{domain: string, matchedKeyword: string}[]> {
+  
+  const results: {domain: string, matchedKeyword: string}[] = []
+  const seen = new Set<string>()
+  
+  for (const keyword of keywords.slice(0, 25)) {
+    const cleanKw = keyword.toLowerCase().replace(/[\s\-_]/g, '')
+    if (cleanKw.length < 2) continue
+    
     try {
-      // Dropped domains = actually available to register
-      const url = `https://files.whoisfreaks.com/v3.3/download/domainer/dropped?apiKey=${apiKey}&date=${date}`
+      // WhoisFreaks dropped domain search — 1 credit per call
+      const url = `https://api.whoisfreaks.com/v2.0/domainer/dropped/search?apiKey=${apiKey}&keyword=${encodeURIComponent(cleanKw)}&page=1`
       
-      console.log(`WhoisFreaks: fetching dropped domains for ${date}`)
+      console.log(`WhoisFreaks search: "${cleanKw}" → ${url}`)
       
       const res = await fetch(url, {
-        signal: AbortSignal.timeout(30000)
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(15000)
       })
       
-      console.log(`WhoisFreaks ${date}: ${res.status} ${res.headers.get('content-type')}`)
+      console.log(`WhoisFreaks "${cleanKw}": ${res.status} ${res.headers.get('content-type')}`)
       
       if (!res.ok) {
-        console.log(`WhoisFreaks ${date}: ${res.status} — trying next date`)
+        const errorText = await res.text()
+        console.log(`WhoisFreaks error body: ${errorText.slice(0, 200)}`)
+        
+        // Try alternative endpoint format
+        const altUrl = `https://api.whoisfreaks.com/v2.0/search/dropped?apiKey=${apiKey}&keyword=${encodeURIComponent(cleanKw)}&page=1`
+        console.log(`Trying alt URL: ${altUrl}`)
+        
+        const altRes = await fetch(altUrl, {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(15000)
+        })
+        
+        console.log(`WhoisFreaks alt "${cleanKw}": ${altRes.status}`)
+        
+        if (!altRes.ok) {
+          // Try third format — the web search tool endpoint
+          const webUrl = `https://whoisfreaks.com/api/v2.0/domainer/dropped/search?apiKey=${apiKey}&keyword=${encodeURIComponent(cleanKw)}`
+          console.log(`Trying web URL: ${webUrl}`)
+          
+          const webRes = await fetch(webUrl, {
+            headers: { 'Accept': 'application/json' },
+            signal: AbortSignal.timeout(15000)
+          })
+          
+          console.log(`WhoisFreaks web "${cleanKw}": ${webRes.status}`)
+          
+          if (!webRes.ok) {
+            await new Promise(r => setTimeout(r, 1000))
+            continue
+          }
+          
+          const webData = await webRes.json()
+          processResults(webData, cleanKw, keyword, seen, results)
+          await new Promise(r => setTimeout(r, 1000))
+          continue
+        }
+        
+        const altData = await altRes.json()
+        processResults(altData, cleanKw, keyword, seen, results)
+        await new Promise(r => setTimeout(r, 1000))
         continue
       }
       
-      const text = await res.text()
+      const data = await res.json()
+      processResults(data, cleanKw, keyword, seen, results)
       
-      // Parse response — could be JSON array or CSV
-      try {
-        const parsed = JSON.parse(text)
-        if (Array.isArray(parsed)) {
-          for (const item of parsed) {
-            const domain = typeof item === 'string' ? item : item.domainName || item.domain || ''
-            if (domain && domain.includes('.')) {
-              domains.push(domain.toLowerCase().trim())
-            }
-          }
-        }
-      } catch {
-        // Try CSV/line format
-        const lines = text.split('\n').map(l => l.trim()).filter(l => l.includes('.') && l.length > 3 && l.length < 80)
-        for (const line of lines) {
-          // Extract domain from CSV line (first column)
-          const domain = line.split(',')[0].replace(/"/g, '').trim().toLowerCase()
-          if (domain.includes('.') && !domain.includes(' ')) {
-            domains.push(domain)
-          }
-        }
-      }
-      
-      console.log(`WhoisFreaks ${date}: loaded ${domains.length} domains`)
-      
-      if (domains.length > 0) break
+      // Rate limit: 10 requests per minute on free tier
+      await new Promise(r => setTimeout(r, 6500))
       
     } catch (e) {
-      console.log(`WhoisFreaks ${date} error: ${String(e).slice(0, 100)}`)
+      console.log(`WhoisFreaks "${cleanKw}" error: ${String(e).slice(0, 100)}`)
     }
   }
-
-  // Also try expired domains feed
-  if (domains.length === 0) {
-    try {
-      const date = dates[0]
-      const url = `https://files.whoisfreaks.com/v3.1/download/domainer/expired?apiKey=${apiKey}&date=${date}`
-      
-      console.log(`WhoisFreaks: trying expired feed for ${date}`)
-      
-      const res = await fetch(url, { signal: AbortSignal.timeout(30000) })
-      
-      console.log(`WhoisFreaks expired ${date}: ${res.status}`)
-      
-      if (res.ok) {
-        const text = await res.text()
-        try {
-          const parsed = JSON.parse(text)
-          if (Array.isArray(parsed)) {
-            for (const item of parsed) {
-              const domain = typeof item === 'string' ? item : item.domainName || item.domain || ''
-              if (domain && domain.includes('.')) {
-                domains.push(domain.toLowerCase().trim())
-              }
-            }
-          }
-        } catch {
-          const lines = text.split('\n').map(l => l.trim()).filter(l => l.includes('.'))
-          for (const line of lines) {
-            const domain = line.split(',')[0].replace(/"/g, '').trim().toLowerCase()
-            if (domain.includes('.') && !domain.includes(' ')) {
-              domains.push(domain)
-            }
-          }
-        }
-        console.log(`WhoisFreaks expired: loaded ${domains.length} domains`)
-      }
-    } catch (e) {
-      console.log(`WhoisFreaks expired error: ${String(e).slice(0, 100)}`)
-    }
-  }
-
-  console.log(`WhoisFreaks TOTAL: ${domains.length} domains loaded`)
-  return [...new Set(domains)] // deduplicate
+  
+  console.log(`WhoisFreaks TOTAL: ${results.length} dropped domains found`)
+  return results
 }
 
-export function filterByKeywords(domains: string[], keywords: string[]): {domain: string, matchedKeyword: string}[] {
-  const results: {domain: string, matchedKeyword: string}[] = []
-  const cleanKeywords = keywords.map(k => k.toLowerCase().replace(/[\s\-_]/g, ''))
+function processResults(
+  data: any, 
+  cleanKw: string, 
+  originalKeyword: string,
+  seen: Set<string>, 
+  results: {domain: string, matchedKeyword: string}[]
+) {
+  // Handle different response formats
+  let domains: any[] = []
   
-  for (const domain of domains) {
-    const name = domain.split('.')[0].toLowerCase()
-    const tld = '.' + domain.split('.').slice(1).join('.')
-    
-    // Skip junk TLDs
-    const junkTLDs = ['.xyz', '.top', '.click', '.store', '.site', '.online', '.live', '.club', '.buzz', '.icu']
-    if (junkTLDs.includes(tld)) continue
-    
-    // Skip too long or too short
-    if (name.length > 30 || name.length < 3) continue
-    
-    // Skip random strings (too many consonants in a row)
-    if (/[bcdfghjklmnpqrstvwxz]{5,}/i.test(name)) continue
-    
-    // Check keyword match
-    for (const kw of cleanKeywords) {
-      if (name.includes(kw)) {
-        results.push({ domain, matchedKeyword: kw })
-        break
-      }
-    }
+  if (Array.isArray(data)) {
+    domains = data
+  } else if (data.domains && Array.isArray(data.domains)) {
+    domains = data.domains
+  } else if (data.result && Array.isArray(data.result)) {
+    domains = data.result
+  } else if (data.data && Array.isArray(data.data)) {
+    domains = data.data
+  } else if (data.domain_list && Array.isArray(data.domain_list)) {
+    domains = data.domain_list
   }
   
-  return results
+  console.log(`WhoisFreaks "${cleanKw}": ${domains.length} domains in response`)
+  
+  for (const item of domains) {
+    const domain = (typeof item === 'string' ? item : item.domain || item.domainName || item.domain_name || '').toLowerCase().trim()
+    
+    if (!domain || !domain.includes('.') || seen.has(domain)) continue
+    
+    // Skip junk TLDs
+    const tld = '.' + domain.split('.').slice(1).join('.')
+    const junkTLDs = ['.xyz', '.top', '.click', '.store', '.site', '.online', '.live', '.club', '.buzz', '.icu', '.space', '.fun']
+    if (junkTLDs.includes(tld)) continue
+    
+    // Skip too long
+    if (domain.length > 40) continue
+    
+    seen.add(domain)
+    results.push({ domain, matchedKeyword: originalKeyword })
+  }
 }
