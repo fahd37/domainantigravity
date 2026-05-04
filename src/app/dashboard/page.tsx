@@ -1,5 +1,4 @@
 "use client";
-
 import { useEffect, useState, useCallback } from "react";
 
 interface DashboardStatus {
@@ -7,466 +6,298 @@ interface DashboardStatus {
   lastPurchase: { domain: string; price: number | null; boughtAt: string | null } | null;
   queue: { pending: number; dailyCount: number; dailySpend: number; killSwitchActive: boolean };
 }
-
 interface ScanProgress {
-  running: boolean;
-  processed: number;
-  total: number;
-  passed: number;
-  failed: number;
-  passRate: string;
-  ratePerMin: number;
-  estimatedRemainingMs: number;
-  sourcesActive: Record<string, boolean>;
-  rateLimits: Record<string, { remaining: number; dayCount: number; dayLimit?: number }>;
+  running: boolean; processed: number; total: number; passed: number; failed: number;
+  passRate: string; ratePerMin: number; estimatedRemainingMs: number;
+  sourcesActive: Record<string, boolean>; rateLimits: Record<string, { remaining: number; dayCount: number; dayLimit?: number }>;
 }
 
-function timeAgo(dateStr: string | null | undefined): string {
-  if (!dateStr) return "Never";
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  const hrs = Math.floor(mins / 60);
-  const days = Math.floor(hrs / 24);
-  if (days > 0) return `${days}d ago`;
-  if (hrs > 0) return `${hrs}h ago`;
-  if (mins > 0) return `${mins}m ago`;
-  return "Just now";
+function timeAgo(d: string|null|undefined) {
+  if(!d) return "Never";
+  const ms=Date.now()-new Date(d).getTime(), m=Math.floor(ms/60000), h=Math.floor(m/60), dy=Math.floor(h/24);
+  return dy>0?`${dy}d ago`:h>0?`${h}h ago`:m>0?`${m}m ago`:"Just now";
 }
 
-function formatMs(ms: number): string {
-  if (ms <= 0) return "—";
-  const h = Math.floor(ms / 3600000);
-  const m = Math.floor((ms % 3600000) / 60000);
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
-
-function ProgressBar({ value, total, color = "bg-primary" }: { value: number; total: number; color?: string }) {
-  const pct = total > 0 ? Math.min(100, (value / total) * 100) : 0;
-  const filled = Math.round(pct / 5);
-  const empty = 20 - filled;
-  return (
-    <div className="flex items-center gap-2">
-      <span className="font-mono text-xs text-muted-foreground">
-        {"█".repeat(filled)}{"░".repeat(empty)}
-      </span>
-      <div className={`h-1.5 flex-1 bg-muted rounded-full overflow-hidden hidden sm:block`}>
-        <div className={`h-full ${color} rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
+function Ring({ score, size=44 }: { score:number; size?:number }) {
+  const c=score>=55?"#22c55e":score>=35?"#eab308":"#ef4444";
+  const r=16,circ=2*Math.PI*r,dash=(Math.min(score,100)/100)*circ;
+  return <svg width={size} height={size} viewBox="0 0 40 40"><circle cx="20" cy="20" r={r} fill="none" stroke="currentColor" strokeWidth="3" className="text-muted/30"/><circle cx="20" cy="20" r={r} fill="none" stroke={c} strokeWidth="3" strokeDasharray={`${dash} ${circ}`} strokeLinecap="round" transform="rotate(-90 20 20)"/><text x="20" y="20" textAnchor="middle" dominantBaseline="central" fill={c} fontSize="10" fontWeight="bold">{score}</text></svg>;
 }
 
 export default function DashboardPage() {
-  const [stats, setStats] = useState({ 
-    indexedDomains: 0, 
-    avgParasiteScore: 0, 
-    highReadiness: 0, 
-    keywordsIdentified: 0,
-    whoisdsStatus: { lastDownload: null, domainsLoaded: 0, nextRetry: null }
-  });
-  const [status, setStatus] = useState<DashboardStatus | null>(null);
-  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
+  const [stats, setStats] = useState({ indexedDomains:0, avgParasiteScore:0, highReadiness:0, keywordsIdentified:0 });
+  const [status, setStatus] = useState<DashboardStatus|null>(null);
+  const [scan, setScan] = useState<ScanProgress|null>(null);
   const [killActive, setKillActive] = useState(false);
   const [togglingKill, setTogglingKill] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [topNiches, setTopNiches] = useState<Array<{displayName:string;parasiteSuccessRate:number;avgTimeToRank:number;opportunity:string;slug:string}>>([]);
-  const [apiConfigured, setApiConfigured] = useState({ whoisfreaks: true, dataforseo: false, googleIndex: false, wayback: true });
+  const [topNiches, setTopNiches] = useState<{displayName:string;parasiteSuccessRate:number;avgTimeToRank:number;opportunity:string;slug:string;opportunityScore?:number}[]>([]);
+  const [apis, setApis] = useState({ whoisfreaks:true, dataforseo:false, googleIndex:false, wayback:true });
 
   const fetchAll = useCallback(async () => {
-    const [statsRes, statusRes] = await Promise.allSettled([
-      fetch("/api/dashboard/stats").then(r => r.json()),
-      fetch("/api/dashboard/status").then(r => r.json()),
+    const [s1,s2] = await Promise.allSettled([
+      fetch("/api/dashboard/stats").then(r=>r.json()),
+      fetch("/api/dashboard/status").then(r=>r.json()),
     ]);
-    if (statsRes.status === "fulfilled" && !statsRes.value.error) setStats(statsRes.value);
-    if (statusRes.status === "fulfilled" && !statusRes.value.error) {
-      setStatus(statusRes.value);
-      setKillActive(statusRes.value.queue?.killSwitchActive ?? false);
-    }
+    if(s1.status==="fulfilled"&&!s1.value.error) setStats(s1.value);
+    if(s2.status==="fulfilled"&&!s2.value.error) { setStatus(s2.value); setKillActive(s2.value.queue?.killSwitchActive??false); }
   }, []);
 
   const fetchProgress = useCallback(async () => {
-    try {
-      const res = await fetch("/api/scan/progress");
-      if (res.ok) setScanProgress(await res.json());
-    } catch { /* ignore */ }
+    try { const r=await fetch("/api/scan/progress"); if(r.ok) setScan(await r.json()); } catch{}
   }, []);
 
   useEffect(() => {
-    fetchAll();
-    fetchProgress();
-    const interval = setInterval(fetchAll, 30000);
-    const progressInterval = setInterval(fetchProgress, 5000);
-    return () => { clearInterval(interval); clearInterval(progressInterval); };
+    fetchAll(); fetchProgress();
+    const a=setInterval(fetchAll,30000), b=setInterval(fetchProgress,5000);
+    return ()=>{clearInterval(a);clearInterval(b);};
   }, [fetchAll, fetchProgress]);
 
   useEffect(() => {
-    fetch('/api/niche-intelligence').then(r => r.json()).then(j => {
-      if (j.niches) setTopNiches(j.niches.filter((n: {opportunity:string}) => n.opportunity === 'HOT').slice(0, 3));
-    }).catch(() => {});
+    fetch('/api/niche-intelligence').then(r=>r.json()).then(j=>{
+      if(j.niches) setTopNiches(j.niches.slice(0,5));
+    }).catch(()=>{});
   }, []);
 
-  // Check which APIs are configured in settings
   useEffect(() => {
-    fetch('/api/settings').then(r => r.json()).then(j => {
-      if (j.data) {
-        const d = j.data;
-        setApiConfigured({
-          whoisfreaks: !!(d.whoisfreaksApiKey),
-          dataforseo:  !!(d.dfs_email || d.dataForSeoEmail) && !!(d.dfs_password || d.dataForSeoPassword),
-          googleIndex: !!(d.google_sa_key),
-          wayback:     true, // Wayback is always free / always active
-        });
-      }
-    }).catch(() => {});
+    fetch('/api/settings').then(r=>r.json()).then(j=>{
+      if(j.data){const d=j.data;setApis({whoisfreaks:!!d.whoisfreaksApiKey,dataforseo:!!(d.dfs_email||d.dataForSeoEmail)&&!!(d.dfs_password||d.dataForSeoPassword),googleIndex:!!d.google_sa_key,wayback:true});}
+    }).catch(()=>{});
   }, []);
 
-  const toggleKillSwitch = async () => {
+  const toggleKill = async () => {
     setTogglingKill(true);
-    try {
-      const res = await fetch("/api/purchase/killswitch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ active: !killActive }),
-      });
-      if (res.ok) { setKillActive(!killActive); await fetchAll(); }
-    } finally { setTogglingKill(false); }
+    try { const r=await fetch("/api/purchase/killswitch",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({active:!killActive})}); if(r.ok){setKillActive(!killActive);await fetchAll();} } finally { setTogglingKill(false); }
   };
 
-  async function triggerManualScan() {
+  const triggerScan = async () => {
     setScanning(true);
     try {
-      const res = await fetch('/api/cron/scan', {
-        headers: { 
-          'x-cron-secret': process.env.NEXT_PUBLIC_CRON_SECRET || 'change-me-random-string-32chars' 
-        }
-      });
-      const data = await res.json();
-      if (!data.success || !res.ok) {
-        const errorMsg = data.log?.join('\n') || data.error || 'Unknown error';
-        alert(`Scan failed:\n${errorMsg}`);
-      } else {
-        alert(`Scan complete — ${data.domainsFound || 0} domains found, ${data.domainsSaved || 0} saved`);
-        await fetchAll();
-      }
-    } catch (e) {
-      alert(`Scan failed: ${String(e)}`);
-    } finally {
-      setScanning(false);
-    }
-  }
+      const r=await fetch('/api/cron/scan',{headers:{'x-cron-secret':process.env.NEXT_PUBLIC_CRON_SECRET||'change-me-random-string-32chars'}});
+      const d=await r.json();
+      if(!d.success||!r.ok) alert(`Scan failed:\n${d.log?.join('\n')||d.error||'Unknown'}`);
+      else { alert(`✅ Scan complete — ${d.domainsFound||0} found, ${d.domainsSaved||0} saved`); await fetchAll(); }
+    } catch(e) { alert(`Scan failed: ${e}`); } finally { setScanning(false); }
+  };
 
-  const dailyLimit = 20;
-  const dailyBudget = 50;
-  const dailyCount = status?.queue.dailyCount ?? 0;
-  const dailySpend = status?.queue.dailySpend ?? 0;
-
+  const dc=status?.queue.dailyCount??0, ds=status?.queue.dailySpend??0;
+  const engineOk = Object.values(apis).filter(Boolean).length;
+  const engineTotal = Object.keys(apis).length;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground mt-2">Overview of your domain hunting engine and acquisition metrics.</p>
+    <div className="flex flex-col gap-5 pb-10">
+      {/* Header */}
+      <div className="flex items-start justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">🏠 Command Center</h1>
+          <p className="text-muted-foreground mt-1.5 text-sm">Real-time overview of your domain hunting engine and acquisition pipeline.</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={toggleKill} disabled={togglingKill} className={`h-9 px-4 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${killActive?"bg-red-600 text-white hover:bg-red-700 shadow-lg shadow-red-900/20":"border border-border text-foreground hover:bg-muted/50"}`}>
+            {killActive&&<span className="relative flex h-2 w-2"><span className="animate-ping absolute h-full w-full rounded-full bg-red-300 opacity-75"/><span className="rounded-full h-2 w-2 bg-white"/></span>}
+            {killActive?"🛑 PAUSED":"⚡ Engine Active"}
+          </button>
+          <button onClick={triggerScan} disabled={scanning} className="h-9 px-4 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+            {scanning?<><span className="h-3.5 w-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"/>Scanning…</>:"🔄 Run Scan Now"}
+          </button>
+        </div>
       </div>
 
-      {/* HUD Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {/* KPI Row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
         {[
-          { label: "Indexed Domains", value: stats.indexedDomains, sub: "Passed Google Index Check", icon: "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", color: "text-blue-500" },
-          { label: "Avg Parasite Score", value: stats.avgParasiteScore, sub: "Topical Authority + Index", icon: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M12 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z", color: "text-purple-500" },
-          { label: "High Readiness", value: stats.highReadiness, sub: "Score >= 70, Ready to rank", icon: "M2 10h20M2 5h20M2 15h20M2 20h20", color: "text-green-500" },
-          { label: "Keywords Identified", value: stats.keywordsIdentified, sub: "From historical rankings", icon: "M22 12h-4l-3 9L9 3l-3 9H2", color: "text-orange-500" },
-        ].map(card => (
-          <div key={card.label} className="rounded-xl border bg-card text-card-foreground shadow-sm p-6">
-            <div className="flex flex-row items-center justify-between pb-2">
-              <h3 className="tracking-tight text-sm font-medium">{card.label}</h3>
-              <svg className="h-4 w-4 text-muted-foreground" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path d={card.icon} />
-              </svg>
+          { label:"Indexed Domains",val:stats.indexedDomains,icon:"🌐",c:"text-blue-400",bg:"bg-blue-500/10 border-blue-500/20" },
+          { label:"Avg Score",val:stats.avgParasiteScore,icon:"📊",c:"text-purple-400",bg:"bg-purple-500/10 border-purple-500/20" },
+          { label:"High Readiness",val:stats.highReadiness,icon:"🔥",c:"text-orange-400",bg:"bg-orange-500/10 border-orange-500/20" },
+          { label:"Keywords Found",val:stats.keywordsIdentified,icon:"🔑",c:"text-green-400",bg:"bg-green-500/10 border-green-500/20" },
+          { label:"Queue",val:status?.queue.pending??0,icon:"⏳",c:"text-yellow-400",bg:"bg-yellow-500/10 border-yellow-500/20" },
+          { label:"Today Bought",val:dc,icon:"✅",c:"text-emerald-400",bg:"bg-emerald-500/10 border-emerald-500/20" },
+        ].map(s=>(
+          <div key={s.label} className={`rounded-xl border p-4 ${s.bg} hover:scale-[1.02] transition-transform cursor-default`}>
+            <div className="flex justify-between items-start mb-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</span>
+              <span>{s.icon}</span>
             </div>
-            <div className={`text-2xl font-bold ${card.color}`}>{card.value}</div>
-            <p className="text-xs text-muted-foreground">{card.sub}</p>
+            <div className={`text-2xl font-bold ${s.c}`}>{s.val}</div>
           </div>
         ))}
       </div>
 
-      {/* System Status Panel */}
-      <div className="rounded-xl border bg-card text-card-foreground shadow-sm p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="font-semibold text-lg">System Status</h3>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={toggleKillSwitch}
-              disabled={togglingKill}
-              className={`relative inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-                killActive ? "bg-red-500 text-white hover:bg-red-600" : "bg-muted text-foreground hover:bg-muted/80"
-              }`}
-            >
-              {killActive && (
-                <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
-                </span>
-              )}
-              {killActive ? "🛑 HUNTING PAUSED" : "⚡ Kill Switch Off"}
-            </button>
-            <button
-              onClick={triggerManualScan}
-              disabled={scanning}
-              className="px-4 py-2 rounded-lg text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
-            >
-              {scanning ? (
-                <>
-                  <span className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Scanning...
-                </>
-              ) : "🔄 Run Scan Now"}
-            </button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between text-sm border-b border-border pb-3">
-              <span className="text-muted-foreground">Last Scan</span>
-              <div className="text-right">
-                <div className="font-medium">{timeAgo(status?.lastScan?.startedAt)}</div>
-                {status?.lastScan && <div className="text-xs text-muted-foreground">{status.lastScan.domainsFound ?? 0} domains found</div>}
-              </div>
-            </div>
-            <div className="flex items-center justify-between text-sm border-b border-border pb-3">
-              <span className="text-muted-foreground">Queue</span>
-              <div className="font-medium">{status?.queue.pending ?? 0} domains waiting</div>
-            </div>
-            <div className="flex items-center justify-between text-sm border-b border-border pb-3">
-              <span className="text-muted-foreground">Last Purchase</span>
-              <div className="text-right">
-                {status?.lastPurchase ? (
-                  <>
-                    <div className="font-medium">{status.lastPurchase.domain}</div>
-                    <div className="text-xs text-muted-foreground">${status.lastPurchase.price ?? 10} · {timeAgo(status.lastPurchase.boughtAt)}</div>
-                  </>
-                ) : <span className="text-muted-foreground">None yet</span>}
-              </div>
+      {/* Row 2: Engine Status + Budget */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Engine Status */}
+        <div className="lg:col-span-2 rounded-xl border bg-card p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold text-sm">⚙️ Engine Status</h2>
+            <div className="flex items-center gap-2">
+              <div className={`h-2 w-2 rounded-full ${killActive?"bg-red-500 animate-pulse":"bg-green-500"}`}/>
+              <span className="text-[10px] text-muted-foreground">{killActive?"Paused":"Running"}</span>
             </div>
           </div>
 
-          <div className="space-y-5">
-            <div>
-              <div className="flex justify-between text-sm mb-2">
-                <span className="text-muted-foreground">Daily Purchases</span>
-                <span className="font-semibold">{dailyCount} / {dailyLimit}</span>
-              </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${Math.min(100, (dailyCount / dailyLimit) * 100)}%` }} />
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between text-sm mb-2">
-                <span className="text-muted-foreground">Daily Spend</span>
-                <span className="font-semibold">${dailySpend.toFixed(0)} / ${dailyBudget}</span>
-              </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div className={`h-full rounded-full transition-all ${dailySpend / dailyBudget > 0.8 ? "bg-red-500" : "bg-green-500"}`} style={{ width: `${Math.min(100, (dailySpend / dailyBudget) * 100)}%` }} />
-              </div>
-            </div>
-            <div className="flex items-center gap-2 pt-2">
-              <div className={`h-2 w-2 rounded-full ${killActive ? "bg-red-500 animate-pulse" : "bg-green-500"}`} />
-              <span className="text-sm text-muted-foreground">{killActive ? "All purchases paused" : "Engine running"}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Scan Progress Widget */}
-      <div className="rounded-xl border bg-card text-card-foreground shadow-sm p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="font-semibold text-lg">Current Scan Progress</h3>
-          <div className="flex items-center gap-2">
-            <div className={`h-2 w-2 rounded-full ${scanProgress?.running ? "bg-green-500 animate-pulse" : "bg-muted-foreground"}`} />
-            <span className="text-xs text-muted-foreground">{scanProgress?.running ? "Running" : "Idle"} · updates every 5s</span>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          {/* Main progress bar */}
-          <div>
-            <div className="flex justify-between text-sm mb-2">
-              <span className="text-muted-foreground font-medium">Domains Processed</span>
-              <span className="font-mono font-bold">
-                {(scanProgress?.processed ?? 0).toLocaleString()} / {(scanProgress?.total ?? 50000).toLocaleString()}
-              </span>
-            </div>
-            <ProgressBar
-              value={scanProgress?.processed ?? 0}
-              total={scanProgress?.total ?? 50000}
-              color={scanProgress?.running ? "bg-primary" : "bg-muted-foreground"}
-            />
-          </div>
-
-          {/* Stats row */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {/* Sources */}
+          <div className="flex flex-wrap gap-2">
             {[
-              { label: "Pass Rate", value: `${scanProgress?.passRate ?? "0.0"}%`, sub: `${(scanProgress?.passed ?? 0)} survived` },
-              { label: "Scoring Rate", value: `${scanProgress?.ratePerMin ?? 0}/min`, sub: "domains/minute" },
-              { label: "Est. Completion", value: formatMs(scanProgress?.estimatedRemainingMs ?? 0), sub: "remaining" },
-              { label: "Failed", value: String(scanProgress?.failed ?? 0), sub: "errors" },
-            ].map(s => (
-              <div key={s.label} className="rounded-lg bg-muted/40 p-3">
-                <div className="text-xs text-muted-foreground">{s.label}</div>
-                <div className="text-lg font-bold mt-0.5">{s.value}</div>
-                <div className="text-xs text-muted-foreground">{s.sub}</div>
-              </div>
+              { k:"whoisfreaks",l:"WhoisFreaks",a:apis.whoisfreaks },
+              { k:"dataforseo",l:"DataForSEO",a:apis.dataforseo },
+              { k:"googleIndex",l:"Google Index",a:apis.googleIndex },
+              { k:"wayback",l:"Wayback",a:apis.wayback },
+            ].map(s=>(
+              <span key={s.k} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold border ${s.a?"bg-green-500/10 text-green-400 border-green-500/20":"bg-red-500/10 text-red-400 border-red-500/20"}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${s.a?"bg-green-500":"bg-red-500"}`}/>{s.l}{s.a?" ✓":" ✗"}
+              </span>
             ))}
+            <span className="text-[10px] text-muted-foreground self-center ml-2">{engineOk}/{engineTotal} active</span>
           </div>
 
-          {/* Sources Active */}
-          <div>
-            <div className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Sources Active</div>
-            <div className="flex flex-wrap gap-2 items-center">
-              {[
-                { key: 'whoisfreaks',  label: 'WhoisFreaks',  active: apiConfigured.whoisfreaks,  tip: 'Dropped domain feed — requires API key' },
-                { key: 'dataforseo',   label: 'DataForSEO',   active: apiConfigured.dataforseo,   tip: 'SEO scoring — requires email + password' },
-                { key: 'googleIndex',  label: 'Google Index', active: apiConfigured.googleIndex,  tip: 'Index check — requires Google SA key' },
-                { key: 'wayback',      label: 'Wayback',      active: apiConfigured.wayback,      tip: 'Historical analysis — always active' },
-              ].map(src => (
-                <span
-                  key={src.key}
-                  title={src.tip}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${
-                    src.active
-                      ? 'bg-green-500/15 text-green-400 border-green-500/30'
-                      : 'bg-red-500/10 text-red-400 border-red-500/20'
-                  }`}
-                >
-                  <span className={`h-1.5 w-1.5 rounded-full ${src.active ? 'bg-green-500' : 'bg-red-500'}`} />
-                  {src.label} {src.active ? '✅' : '❌'}
-                </span>
-              ))}
+          {/* Last Scan / Last Purchase */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="bg-muted/20 rounded-xl p-3">
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Last Scan</div>
+              <div className="font-bold mt-1">{timeAgo(status?.lastScan?.startedAt)}</div>
+              {status?.lastScan && <div className="text-[10px] text-muted-foreground">{status.lastScan.domainsFound} domains found</div>}
             </div>
-            {status?.lastScan && (
-              <div className="text-xs text-muted-foreground mt-2">
-                Last scan: {timeAgo(status.lastScan.startedAt)} · {status.lastScan.domainsFound ?? 0} domains found
-              </div>
-            )}
+            <div className="bg-muted/20 rounded-xl p-3">
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Last Purchase</div>
+              {status?.lastPurchase?(
+                <><div className="font-bold mt-1 font-mono text-sm truncate">{status.lastPurchase.domain}</div>
+                <div className="text-[10px] text-muted-foreground">${status.lastPurchase.price??10} · {timeAgo(status.lastPurchase.boughtAt)}</div></>
+              ):<div className="text-sm text-muted-foreground mt-1">None yet</div>}
+            </div>
+            <div className="bg-muted/20 rounded-xl p-3">
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Pipeline</div>
+              <div className="font-bold mt-1">{apis.whoisfreaks?"WhoisFreaks":"Not configured"}</div>
+              <div className="text-[10px] text-muted-foreground">{apis.dataforseo?"DataForSEO scoring":"No scoring engine"}</div>
+            </div>
           </div>
 
-          {/* WhoisFreaks Status Panel */}
-          <div className="rounded-lg bg-muted/20 p-4 border border-muted-foreground/10">
-            <div className="text-sm font-bold text-primary mb-3 uppercase tracking-wider flex items-center gap-2">
-              <span className={`h-2 w-2 rounded-full ${apiConfigured.whoisfreaks ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
-              WhoisFreaks + DataForSEO Pipeline
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">Pipeline Source</div>
-                <div className="text-sm font-mono font-bold text-green-400">WhoisFreaks Drops</div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">Scoring Engine</div>
-                <div className={`text-sm font-mono font-bold ${apiConfigured.dataforseo ? 'text-green-400' : 'text-yellow-400'}`}>
-                  {apiConfigured.dataforseo ? 'DataForSEO Active' : 'DataForSEO — Not configured'}
-                </div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">Last Scan</div>
-                <div className="text-sm font-mono font-bold">
-                  {status?.lastScan ? timeAgo(status.lastScan.startedAt) : 'Never'}
-                </div>
-              </div>
-            </div>
-            {!apiConfigured.dataforseo && (
-              <div className="mt-3 text-xs text-yellow-400 bg-yellow-500/10 rounded p-2 border border-yellow-500/20">
-                ⚠️ DataForSEO not configured — domains will be saved without SEO scores.
-                <a href="/settings" className="underline ml-1 font-semibold">Configure in Settings →</a>
-              </div>
-            )}
-          </div>
-
-          {/* Rate limit status */}
-          {scanProgress?.rateLimits && Object.keys(scanProgress.rateLimits).length > 0 && (
-            <div>
-              <div className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">API Rate Limits</div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-                {Object.entries(scanProgress.rateLimits).map(([api, rl]) => {
-                  const pct = rl.dayLimit ? (rl.dayCount / rl.dayLimit) * 100 : 0;
-                  const isHot = pct > 80;
-                  return (
-                    <div key={api} className={`rounded-lg p-2 border ${isHot ? "border-red-500/30 bg-red-500/10" : "bg-muted/30 border-border"}`}>
-                      <div className="text-xs font-mono font-medium">{api}</div>
-                      <div className={`text-sm font-bold ${isHot ? "text-red-500" : ""}`}>
-                        {rl.remaining} left
-                      </div>
-                      {rl.dayLimit && (
-                        <div className="text-xs text-muted-foreground">{rl.dayCount}/{rl.dayLimit} today</div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+          {/* DataForSEO Warning */}
+          {!apis.dataforseo && (
+            <div className="text-xs text-yellow-400 bg-yellow-500/10 rounded-lg px-4 py-2.5 border border-yellow-500/20 flex items-center justify-between">
+              <span>⚠️ DataForSEO not configured — domains saved without SEO scores</span>
+              <a href="/settings" className="underline font-bold hover:text-yellow-300">Configure →</a>
             </div>
           )}
         </div>
-      </div>
 
-      {/* Intelligence Widget */}
-      <div className="rounded-xl border bg-card text-card-foreground shadow-sm p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-lg flex items-center gap-2">🧠 Top Opportunities Right Now</h3>
-          <a href="/niche-intelligence" className="text-xs text-primary hover:underline">View Full Intelligence →</a>
-        </div>
-        <div className="space-y-2">
-          {topNiches.length === 0 ? (
-            <div className="text-sm text-muted-foreground">Loading intelligence data...</div>
-          ) : topNiches.map(n => (
-            <div key={n.slug} className="flex items-center justify-between rounded-lg bg-muted/30 px-4 py-2.5">
-              <div className="flex items-center gap-2">
-                <span className="text-base">🔥</span>
-                <span className="font-medium text-sm">{n.displayName}</span>
+        {/* Budget Card */}
+        <div className="rounded-xl border bg-card p-5 space-y-4">
+          <h2 className="font-semibold text-sm">💰 Daily Budget</h2>
+          {[
+            { label:"Purchases",val:dc,max:20,c:"bg-primary" },
+            { label:"Spend",val:ds,max:50,c:ds/50>0.8?"bg-red-500":"bg-green-500",fmt:(v:number)=>`$${v.toFixed(0)}`,fmtMax:"$50" },
+          ].map(b=>(
+            <div key={b.label} className="space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">{b.label}</span>
+                <span className="font-mono font-bold">{b.fmt?b.fmt(b.val):b.val} / {b.fmtMax??b.max}</span>
               </div>
-              <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                <span className="text-green-400 font-semibold">{n.parasiteSuccessRate}% success</span>
-                <span>{n.avgTimeToRank} days avg</span>
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                <div className={`h-full ${b.c} rounded-full transition-all`} style={{width:`${Math.min(100,(b.val/b.max)*100)}%`}}/>
               </div>
             </div>
           ))}
+          <div className="bg-muted/20 rounded-xl p-3 text-center">
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Remaining Budget</div>
+            <div className="text-2xl font-bold text-green-400 mt-1">${(50-ds).toFixed(0)}</div>
+            <div className="text-[10px] text-muted-foreground">{20-dc} purchases left today</div>
+          </div>
         </div>
       </div>
 
-      {/* IPTV Hunter Widget */}
-      <div className="rounded-xl border bg-card text-card-foreground shadow-sm p-6 border-blue-500/20 bg-gradient-to-br from-card to-blue-500/5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-lg flex items-center gap-2">📺 IPTV HUNTER STATUS</h3>
-          <a href="/iptv-hunter" className="text-xs text-primary hover:underline font-bold bg-blue-500/10 px-3 py-1 rounded-full text-blue-400">Open IPTV Hunter →</a>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 text-sm border-b border-border/50 pb-4">
-          <div>
-            <div className="text-muted-foreground text-xs mb-1">Markets monitored</div>
-            <div className="text-lg">🇺🇸 🇬🇧 🇫🇷 🇩🇪 🇳🇱 🇸🇪 🇳🇴 🇩🇰</div>
-          </div>
-          <div>
-            <div className="text-muted-foreground text-xs mb-1">IPTV domains found today</div>
-            <div className="font-mono font-bold text-2xl text-green-400">0</div>
-          </div>
-          <div>
-            <div className="text-muted-foreground text-xs mb-1">Best opportunity</div>
-            <div className="font-mono text-muted-foreground mt-1">—</div>
-          </div>
-          <div>
-            <div className="text-muted-foreground text-xs mb-1">Last IPTV scan</div>
-            <div className="font-mono text-muted-foreground mt-1">Never</div>
+      {/* Scan Progress */}
+      <div className="rounded-xl border bg-card p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-sm">📡 Live Scan Progress</h2>
+          <div className="flex items-center gap-2">
+            <div className={`h-2 w-2 rounded-full ${scan?.running?"bg-green-500 animate-pulse":"bg-muted-foreground"}`}/>
+            <span className="text-[10px] text-muted-foreground">{scan?.running?"Running":"Idle"} · auto-refresh 5s</span>
           </div>
         </div>
-        
-        <div className="flex items-center justify-between mt-4">
-          <div className="text-sm font-medium">Top IPTV Opportunities Right Now:</div>
+        <div>
+          <div className="flex justify-between text-xs mb-1.5">
+            <span className="text-muted-foreground">Domains Processed</span>
+            <span className="font-mono font-bold">{(scan?.processed??0).toLocaleString()} / {(scan?.total??0).toLocaleString()}</span>
+          </div>
+          <div className="h-3 bg-muted rounded-full overflow-hidden">
+            <div className={`h-full rounded-full transition-all duration-500 ${scan?.running?"bg-primary":"bg-muted-foreground/50"}`} style={{width:`${scan?.total?(scan.processed/scan.total)*100:0}%`}}/>
+          </div>
         </div>
-        <div className="text-sm text-muted-foreground mt-2 italic bg-muted/30 p-3 rounded-lg border border-border/50 text-center">
-          No data yet — run first scan in the IPTV Hunter.
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { label:"Pass Rate",val:`${scan?.passRate??"0.0"}%`,sub:`${scan?.passed??0} survived`,c:"text-green-400" },
+            { label:"Speed",val:`${scan?.ratePerMin??0}/min`,sub:"domains/minute",c:"text-blue-400" },
+            { label:"ETA",val:scan?.estimatedRemainingMs&&scan.estimatedRemainingMs>0?`${Math.ceil(scan.estimatedRemainingMs/60000)}m`:"—",sub:"remaining",c:"text-foreground" },
+            { label:"Errors",val:String(scan?.failed??0),sub:"failed checks",c:(scan?.failed??0)>0?"text-red-400":"text-green-400" },
+          ].map(s=>(
+            <div key={s.label} className="bg-muted/20 rounded-xl p-3">
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{s.label}</div>
+              <div className={`text-lg font-bold mt-0.5 ${s.c}`}>{s.val}</div>
+              <div className="text-[10px] text-muted-foreground">{s.sub}</div>
+            </div>
+          ))}
         </div>
-        <button onClick={() => window.location.href='/iptv-hunter'} className="mt-4 w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold transition-colors shadow-lg shadow-blue-900/20">
-          Run IPTV Scan →
-        </button>
+
+        {/* Rate Limits */}
+        {scan?.rateLimits && Object.keys(scan.rateLimits).length>0 && (
+          <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wide self-center mr-2">API Limits:</span>
+            {Object.entries(scan.rateLimits).map(([api,rl])=>{
+              const pct = rl.dayLimit?(rl.dayCount/rl.dayLimit)*100:0;
+              return <span key={api} className={`text-[10px] font-mono px-2 py-1 rounded border ${pct>80?"bg-red-500/10 text-red-400 border-red-500/20":"bg-muted/30 border-border"}`}>{api}: {rl.remaining} left</span>;
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Row 4: Top Opportunities + Quick Actions */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* Top Opportunities */}
+        <div className="rounded-xl border bg-card p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold text-sm">🔥 Top Opportunities</h2>
+            <a href="/niche-intelligence" className="text-[10px] text-primary font-bold hover:underline">View All →</a>
+          </div>
+          {topNiches.length===0?<div className="text-sm text-muted-foreground py-4">Loading…</div>:
+            topNiches.map(n=>(
+              <div key={n.slug} className="flex items-center gap-3 bg-muted/20 rounded-xl px-4 py-3 hover:bg-muted/30 transition-colors cursor-pointer" onClick={()=>window.location.href=`/hunt?niche=${n.slug}&source=dashboard`}>
+                <Ring score={n.opportunityScore??Math.round(n.parasiteSuccessRate*0.9)} size={38}/>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-sm">{n.displayName}</div>
+                  <div className="flex items-center gap-3 text-[10px] text-muted-foreground mt-0.5">
+                    <span className="text-green-400 font-bold">{n.parasiteSuccessRate}% success</span>
+                    <span>{n.avgTimeToRank}d to rank</span>
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${n.opportunity==="HOT"?"bg-orange-500/20 text-orange-400":"bg-blue-500/20 text-blue-400"}`}>{n.opportunity}</span>
+                  </div>
+                </div>
+                <span className="text-xs text-primary font-bold">Hunt →</span>
+              </div>
+            ))
+          }
+        </div>
+
+        {/* Quick Actions */}
+        <div className="rounded-xl border bg-card p-5 space-y-3">
+          <h2 className="font-semibold text-sm">⚡ Quick Actions</h2>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { label:"Run Full Scan",desc:"WhoisFreaks + DataForSEO pipeline",href:"#",icon:"🔄",action:triggerScan,disabled:scanning,bg:"bg-blue-600 hover:bg-blue-700 text-white" },
+              { label:"Hunt Domains",desc:"Score & filter expired domains",href:"/hunt",icon:"🎯",bg:"bg-green-600 hover:bg-green-700 text-white" },
+              { label:"Auctions",desc:"Live GoDaddy auction opportunities",href:"/auctions",icon:"🏷",bg:"bg-purple-600 hover:bg-purple-700 text-white" },
+              { label:"IPTV Hunter",desc:"IPTV niche across 14 markets",href:"/iptv-hunter",icon:"📺",bg:"bg-indigo-600 hover:bg-indigo-700 text-white" },
+              { label:"Spy",desc:"Analyze competitor portfolios",href:"/spy",icon:"🕵️",bg:"bg-orange-600 hover:bg-orange-700 text-white" },
+              { label:"Settings",desc:"API keys & configuration",href:"/settings",icon:"⚙️",bg:"border border-border hover:bg-muted/50 text-foreground" },
+            ].map(a=>(
+              <button key={a.label} onClick={()=>a.action?a.action():window.location.href=a.href} disabled={a.disabled} className={`rounded-xl p-3 text-left transition-all hover:scale-[1.02] disabled:opacity-50 ${a.bg}`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <span>{a.icon}</span>
+                  <span className="font-bold text-xs">{a.label}</span>
+                </div>
+                <div className="text-[10px] opacity-70">{a.desc}</div>
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
