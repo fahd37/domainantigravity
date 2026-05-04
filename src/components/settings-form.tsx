@@ -106,6 +106,26 @@ export function SettingsForm({ initialSettings }: { initialSettings: Record<stri
 
       <div className="rounded-xl border bg-card text-card-foreground shadow-sm">
         <div className="p-6 border-b border-border">
+          <h3 className="font-semibold leading-none tracking-tight">WhoisFreaks API</h3>
+          <p className="text-xs text-muted-foreground mt-1">Used to fetch today&apos;s dropped/expired domain lists.</p>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="space-y-2">
+            <Label>WhoisFreaks API Key</Label>
+            <Input
+              type="password"
+              placeholder={maskValue(settings["whoisfreaksApiKey"]) || "53598576e194490dbd84cab0afc953b1"}
+              onChange={(e) => handleChange("whoisfreaksApiKey", e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Default key pre-configured. Replace with your own from whoisfreaks.com if needed.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border bg-card text-card-foreground shadow-sm">
+        <div className="p-6 border-b border-border">
           <h3 className="font-semibold leading-none tracking-tight">DataForSEO API</h3>
         </div>
         <div className="p-6 space-y-4">
