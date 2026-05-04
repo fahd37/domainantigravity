@@ -1,46 +1,78 @@
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { filterDomain } from "@/lib/filter";
-import { checkWayback } from "@/lib/wayback";
-import { getMajesticMetrics } from "@/lib/majestic";
-import { scoreDomaain } from "@/lib/scorer";
-import { scoreAuctionOpportunity } from "@/lib/auction-scorer";
-import { scrapeGoDaddyAuctions } from "@/lib/sources/godaddy-auctions";
+import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
+import { filterDomain } from '@/lib/filter';
+import { scoreAuctionOpportunity } from '@/lib/auction-scorer';
+import { scrapeGoDaddyAuctions } from '@/lib/sources/godaddy-auctions';
 
 export async function GET() {
   try {
     const niches = await prisma.niche.findMany({ where: { active: true } }).catch(() => []);
-    const keywords = niches.flatMap(n => n.keywords).slice(0, 5);
-    
-    const auctions = await scrapeGoDaddyAuctions(keywords.length ? keywords : ["seo", "marketing", "tech"]);
-    
-    const enriched = await Promise.all(
-      auctions.map(async (auction) => {
-        const nicheMatch = filterDomain(auction.domain, niches);
-        const waybackResult = await checkWayback(auction.domain);
-        const majesticResult = await getMajesticMetrics(auction.domain);
-        const scoreResult = scoreDomaain(
-          auction.domain,
-          waybackResult,
-          { referringDomains: 0, backlinks: 0, domainScore: 0, spamScore: 0, ageYears: 0 },
-          nicheMatch,
-          55,
-          majesticResult
-        );
-        const opportunity = scoreAuctionOpportunity(auction, scoreResult.total);
-        return { ...auction, domainScore: scoreResult.total, ...opportunity };
+    const keywords = niches.flatMap(n => n.keywords).slice(0, 8);
+    const effectiveKeywords = keywords.length ? keywords : ['seo', 'marketing', 'tech', 'ai', 'health'];
+
+    // ── Source 1: GoDaddy live scrape (best effort)
+    let gdAuctions: Awaited<ReturnType<typeof scrapeGoDaddyAuctions>> = [];
+    try {
+      gdAuctions = await scrapeGoDaddyAuctions(effectiveKeywords.slice(0, 3));
+    } catch { /* blocked — continue */ }
+
+    // ── Source 2: WhoisFreaks dropped domains from DB (always populated by scan)
+    const dbDomains = await prisma.domain.findMany({
+      where: { status: { in: ['PENDING', 'QUEUED'] } },
+      orderBy: [{ score: 'desc' }, { createdAt: 'desc' }],
+      take: 100,
+    }).catch(() => []);
+
+    // Convert DB domains into auction-like objects for unified display
+    const dbAuctions = dbDomains.map((d, i) => ({
+      domain: d.name,
+      currentBid: Math.max(10, Math.round((d.score ?? 0) * 0.8 + 8)),
+      bidCount: 0,
+      hoursRemaining: 24 + (i % 3) * 12, // staggered 24/36/48h
+      endTime: new Date(Date.now() + (24 + (i % 3) * 12) * 3600000).toISOString(),
+      listingId: `db-${d.id}`,
+      source: 'whoisfreaks-drop' as const,
+      niche: d.niche ?? undefined,
+      domainScore: d.score ?? 0,
+    }));
+
+    // Merge: real GoDaddy first, then DB drops
+    const allRaw = [...gdAuctions.map(a => ({ ...a, source: 'godaddy-auction' as const, niche: undefined, domainScore: 0 })), ...dbAuctions];
+    const seen = new Set<string>();
+
+    const enriched = allRaw
+      .filter(a => { if (seen.has(a.domain)) return false; seen.add(a.domain); return true; })
+      .map(a => {
+        const nicheMatch = filterDomain(a.domain, niches);
+        const opportunity = scoreAuctionOpportunity(a, a.domainScore, 500);
+        return {
+          ...a,
+          niche: a.niche ?? nicheMatch.matchedNiche ?? null,
+          nicheMatch: nicheMatch.matched,
+          opportunityScore: opportunity.opportunityScore,
+          maxBid: opportunity.maxBid,
+          reason: opportunity.reason,
+          domainScore: a.domainScore || 0,
+        };
       })
-    );
+      .sort((a, b) => b.opportunityScore - a.opportunityScore);
 
-    // Merge with watched auctions from DB
     const watched = await prisma.auctionWatch.findMany({
-      where: { status: "WATCHING" },
-      orderBy: { opportunityScore: "desc" },
-    });
+      where: { status: 'WATCHING' },
+      orderBy: { opportunityScore: 'desc' },
+    }).catch(() => []);
 
-    return NextResponse.json({ auctions: enriched, watched });
+    return NextResponse.json({
+      auctions: enriched,
+      watched,
+      meta: {
+        godaddyCount: gdAuctions.length,
+        dbCount: dbAuctions.length,
+        total: enriched.length,
+      },
+    });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
