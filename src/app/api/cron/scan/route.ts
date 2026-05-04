@@ -130,7 +130,6 @@ export async function GET() {
           where: { name: match.domain },
           update: {
             score: Math.round(qualityScore),
-            updatedAt: new Date()
           },
           create: {
             name: match.domain,
