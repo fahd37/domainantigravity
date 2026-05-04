@@ -1,7 +1,13 @@
-import { prisma } from '@/lib/prisma'
+export interface WhoisDSDomain {
+  domain: string
+  source: 'whoisds' | 'expireddomains' | 'namecheap-market' | 'domaindb' | 'freshdrops' | 'expired-scan'
+  matchedKeyword: string
+  discoveredAt: Date
+}
 
-export async function fetchExpiredDomains(keywords: string[]): Promise<string[]> {
-  const domains: string[] = []
+export async function fetchExpiredDomains(keywords: string[]): Promise<WhoisDSDomain[]> {
+  const domains: WhoisDSDomain[] = []
+  const seen = new Set<string>()
   
   // Source 1: WhoisDS - try multiple date formats
   try {
@@ -29,14 +35,20 @@ export async function fetchExpiredDomains(keywords: string[]): Promise<string[]>
         
         for (const line of lines) {
           const domain = line.toLowerCase().trim()
-          if (!domain.includes('.')) continue
+          if (!domain.includes('.') || seen.has(domain)) continue
           const name = domain.split('.')[0]
-          if (keywords.some(kw => name.includes(kw.toLowerCase().replace(/\s+/g, '')))) {
-            domains.push(domain)
+          const matchedKw = keywords.find(kw => name.includes(kw.toLowerCase().replace(/\s+/g, '')))
+          if (matchedKw) {
+            seen.add(domain)
+            domains.push({
+              domain,
+              source: 'whoisds',
+              matchedKeyword: matchedKw,
+              discoveredAt: new Date()
+            })
           }
         }
         console.log(`WhoisDS: ${domains.length} keyword matches`)
-        if (domains.length > 0) return domains
       }
     }
   } catch (e) {
@@ -73,8 +85,14 @@ export async function fetchExpiredDomains(keywords: string[]): Promise<string[]>
       let match
       while ((match = regex.exec(html)) !== null) {
         const domain = match[1].toLowerCase()
-        if (!domains.includes(domain)) {
-          domains.push(domain)
+        if (!seen.has(domain)) {
+          seen.add(domain)
+          domains.push({
+            domain,
+            source: 'expireddomains',
+            matchedKeyword: keyword,
+            discoveredAt: new Date()
+          })
         }
       }
       
@@ -88,3 +106,5 @@ export async function fetchExpiredDomains(keywords: string[]): Promise<string[]>
 
   return domains
 }
+
+export const downloadWhoisDSDrops = fetchExpiredDomains;

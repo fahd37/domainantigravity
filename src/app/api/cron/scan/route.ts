@@ -22,13 +22,15 @@ export async function GET() {
     const domains = await fetchExpiredDomains(fallbackKeywords)
     log.push(`Found ${domains.length} matching domains`)
 
-    for (const domain of domains) {
+    for (const d of domains) {
       try {
-        const exists = await prisma.domain.findFirst({ where: { name: domain } })
+        const domainName = d.domain;
+        const exists = await prisma.domain.findFirst({ where: { name: domainName } })
         if (exists) continue
         await prisma.domain.create({
           data: {
-            name: domain,
+            name: domainName,
+            tld: '.' + domainName.split('.').pop(),
             status: 'PENDING',
             source: 'expired-scan',
             niche: 'unknown',
@@ -51,6 +53,7 @@ export async function GET() {
         domainsBought: 0,
         totalSpent: 0,
         status: 'COMPLETED',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         log: log as any
       }
     }).catch(() => {})
