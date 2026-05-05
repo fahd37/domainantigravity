@@ -1,10 +1,8 @@
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 import { NextResponse } from "next/server";
-import { downloadWhoisDSDrops } from "@/lib/sources/whoisds";
-import { checkGoogleIndex } from "@/lib/google-index";
-import { checkWaybackContent } from "@/lib/wayback";
-import { scoreIPTVDomain } from "@/lib/iptv/iptv-scorer";
+import { prisma } from "@/lib/prisma";
+import { downloadDailyDrops, filterByNicheKeywords } from "@/lib/pipeline/volume-engine";
 import { IPTV_DOMAIN_PATTERNS } from "@/lib/iptv/keyword-database";
 
 export async function POST(req: Request) {
@@ -12,48 +10,51 @@ export async function POST(req: Request) {
     const { markets } = await req.json();
     const marketList = markets && markets.length > 0 ? markets : ['US'];
     
-    // Step 1: Call WhoisDS real API
-    // Using top 15 patterns to keep the API responsive
-    const keywords = IPTV_DOMAIN_PATTERNS.slice(0, 15);
-    const whoisDomains = await downloadWhoisDSDrops(keywords);
+    // Load WhoisFreaks key
+    const settings = await prisma.settings.findMany();
+    const whoisfreaksKey = settings.find(s => s.key === 'whoisfreaksApiKey')?.value || '';
     
-    // Process top 10 domains for real checks to avoid extremely long requests
-    const realDomains = whoisDomains.slice(0, 10);
-    const results = [];
-    
-    // Step 2: For each real domain found
-    for (const d of realDomains) {
-      // Run real Google index check
-      const gIndex = await checkGoogleIndex(d.domain);
-      
-      // Run real Wayback check
-      const wback = await checkWaybackContent(d.domain, ['iptv', 'stream', 'channel']);
-      
-      // Run real IPTV scorer
-      const scoreData = scoreIPTVDomain({
-        domain: d.domain,
-        googleIndex: { indexed: gIndex.indexed, pageCount: gIndex.pageCount },
-        wayback: { contentSample: wback.contentSample },
-        dataForSeo: { ageYears: 4 }, // Mocked or fetched if DFS available
-        majestic: { trustFlow: 10, citationFlow: 10, tfCfRatio: 1.0 }, // Mocked or fetched
-        targetMarket: marketList[0],
-        language: 'en'
-      });
-      
-      results.push({
-        domain: d.domain,
-        iptvScore: scoreData.total,
-        parasiteReadiness: scoreData.parasiteReadiness,
-        estimatedRankDays: scoreData.estimatedDaysToRank,
-        googlePages: gIndex.pageCount,
-        estimatedMonthlyRevenue: scoreData.estimatedMonthlyRevenue,
-        previouslyIPTV: scoreData.previouslyIPTV
-      });
+    if (!whoisfreaksKey) {
+      return NextResponse.json({ error: "WhoisFreaks API key not configured" }, { status: 400 });
     }
+    
+    // Step 1: Download drops from WhoisFreaks
+    const allDrops = await downloadDailyDrops(whoisfreaksKey);
+    
+    // Step 2: Filter by IPTV keywords
+    const iptvKeywords = IPTV_DOMAIN_PATTERNS.slice(0, 30);
+    const iptvNiche = { slug: 'iptv_players', keywords: iptvKeywords, tlds: [] as string[] };
+    const matches = filterByNicheKeywords(allDrops, [iptvNiche]);
+    
+    // Step 3: Score matches
+    const results = matches.slice(0, 20).map(m => {
+      // Basic scoring for IPTV domains
+      const name = m.domain.split('.')[0];
+      let score = 30; // base
+      if (name.includes('iptv')) score += 20;
+      if (name.includes('stream')) score += 15;
+      if (name.includes('tv')) score += 10;
+      if (name.includes('live')) score += 10;
+      if (name.length < 15) score += 10;
+      const tld = '.' + m.domain.split('.').slice(1).join('.');
+      if (['.com', '.net', '.org', '.tv'].includes(tld)) score += 5;
+      score = Math.min(100, score);
+      
+      return {
+        domain: m.domain,
+        iptvScore: score,
+        parasiteReadiness: score >= 70 ? 'HIGH' : score >= 45 ? 'MEDIUM' : 'LOW',
+        estimatedRankDays: Math.max(7, 90 - score),
+        googlePages: 0,
+        estimatedMonthlyRevenue: Math.round(score * 3.5),
+        previouslyIPTV: name.includes('iptv') || name.includes('stream'),
+        market: marketList[0],
+      };
+    });
 
-    // Step 3: Return real results
     return NextResponse.json({
-      scanned: whoisDomains.length,
+      scanned: allDrops.length,
+      filtered: matches.length,
       passed: results.length,
       results: results.sort((a, b) => b.iptvScore - a.iptvScore)
     });

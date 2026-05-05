@@ -97,7 +97,7 @@ export default function SpyPage() {
         <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
           🕵️ Competitor Spy
         </h1>
-        <p className="text-muted-foreground mt-1.5 text-sm">Reverse-engineer any competitor's domain portfolio and extract their winning SEO patterns.</p>
+        <p className="text-muted-foreground mt-1.5 text-sm">Reverse-engineer any competitor&apos;s domain portfolio and extract their winning SEO patterns.</p>
       </div>
 
       {/* Search */}
@@ -359,7 +359,7 @@ export default function SpyPage() {
         <div className="rounded-xl border border-dashed bg-card/50 p-16 text-center">
           <div className="text-5xl mb-4">🕵️</div>
           <h2 className="text-lg font-semibold mb-2">Enter a competitor to start spying</h2>
-          <p className="text-sm text-muted-foreground max-w-md mx-auto mb-6">We'll map their full domain portfolio, score every domain through our pipeline, and extract keyword + TLD patterns you can replicate.</p>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto mb-6">We&apos;ll map their full domain portfolio, score every domain through our pipeline, and extract keyword + TLD patterns you can replicate.</p>
           <div className="flex flex-wrap justify-center gap-2">
             {PRESETS.map(p => (
               <button key={p.val} onClick={() => analyze(p.val)} className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted/50 hover:border-primary/50 transition-colors font-medium">

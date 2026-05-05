@@ -32,7 +32,7 @@ export default function DomainsPage() {
   const [scoreRange, setScoreRange] = useState([0]);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<"score"|"name"|"date"|"dr"|"wayback">("score");
-  const [sortDir, setSortDir] = useState<"asc"|"desc">("desc");
+  const sortDir = "desc" as const;
   const [selectedDomain, setSelectedDomain] = useState<Domain|null>(null);
   const [tab, setTab] = useState<"all"|"bought"|"high"|"rejected">("all");
   const [bulkIds, setBulkIds] = useState<Set<string>>(new Set());
@@ -63,7 +63,7 @@ export default function DomainsPage() {
   };
   const handleBulkDelete = async () => {
     if(!confirm(`Delete ${bulkIds.size} domains permanently?`)) return;
-    for(const id of bulkIds) await fetch(`/api/domains?id=${id}`,{method:"DELETE"});
+    for(const id of Array.from(bulkIds)) await fetch(`/api/domains?id=${id}`,{method:"DELETE"});
     setBulkIds(new Set()); load();
   };
 
@@ -87,10 +87,11 @@ export default function DomainsPage() {
       if(sortBy==="score") { av=a.score??0; bv=b.score??0; }
       else if(sortBy==="dr") { av=a.dr??0; bv=b.dr??0; }
       else if(sortBy==="wayback") { av=a.waybackPages??0; bv=b.waybackPages??0; }
-      else if(sortBy==="name") { return sortDir==="asc"?a.name.localeCompare(b.name):b.name.localeCompare(a.name); }
+      else if(sortBy==="name") { return b.name.localeCompare(a.name); }
       else { av=new Date(a.createdAt).getTime(); bv=new Date(b.createdAt).getTime(); }
-      return sortDir==="desc"?bv-av:av-bv;
+      return bv-av;
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [domains, statusFilter, nicheFilter, scoreRange, search, sortBy, sortDir, tab]);
 
   const niches = useMemo(() => Array.from(new Set(domains.map(d=>d.niche).filter(Boolean))), [domains]);
@@ -106,10 +107,7 @@ export default function DomainsPage() {
     return count > (best.count??0) ? {niche:n,count} : best;
   }, {niche:"",count:0}).niche : "—";
 
-  const toggleSort = (col: typeof sortBy) => {
-    if(sortBy===col) setSortDir(d=>d==="desc"?"asc":"desc");
-    else { setSortBy(col); setSortDir("desc"); }
-  };
+  // Sort toggle handled by select dropdown
 
   const handleExportCSV = () => {
     const rows = [["Domain","Niche","Score","Status","DR","Backlinks","Wayback"].join(",")];

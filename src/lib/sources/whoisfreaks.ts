@@ -86,14 +86,14 @@ export async function searchDroppedDomains(
 }
 
 function processResults(
-  data: any, 
+  data: Record<string, unknown>, 
   cleanKw: string, 
   originalKeyword: string,
   seen: Set<string>, 
   results: {domain: string, matchedKeyword: string}[]
 ) {
   // Handle different response formats
-  let domains: any[] = []
+  let domains: Record<string, unknown>[] = []
   
   if (Array.isArray(data)) {
     domains = data
@@ -110,7 +110,8 @@ function processResults(
   console.log(`WhoisFreaks "${cleanKw}": ${domains.length} domains in response`)
   
   for (const item of domains) {
-    const domain = (typeof item === 'string' ? item : item.domain || item.domainName || item.domain_name || '').toLowerCase().trim()
+    const raw = item as Record<string, string>;
+    const domain = (typeof item === 'string' ? item : raw.domain || raw.domainName || raw.domain_name || '').toLowerCase().trim()
     
     if (!domain || !domain.includes('.') || seen.has(domain)) continue
     

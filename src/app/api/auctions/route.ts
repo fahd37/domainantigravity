@@ -4,19 +4,13 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { filterDomain } from '@/lib/filter';
 import { scoreAuctionOpportunity } from '@/lib/auction-scorer';
-import { scrapeGoDaddyAuctions } from '@/lib/sources/godaddy-auctions';
 
 export async function GET() {
   try {
     const niches = await prisma.niche.findMany({ where: { active: true } }).catch(() => []);
-    const keywords = niches.flatMap(n => n.keywords).slice(0, 8);
-    const effectiveKeywords = keywords.length ? keywords : ['seo', 'marketing', 'tech', 'ai', 'health'];
 
-    // ── Source 1: GoDaddy live scrape (best effort)
-    let gdAuctions: Awaited<ReturnType<typeof scrapeGoDaddyAuctions>> = [];
-    try {
-      gdAuctions = await scrapeGoDaddyAuctions(effectiveKeywords.slice(0, 3));
-    } catch { /* blocked — continue */ }
+    // GoDaddy scraper removed — auctions now powered by drop-feed pipeline
+    const gdAuctions: { domain: string; currentBid: number; bidCount: number; hoursRemaining: number; endTime: string; listingId: string }[] = [];
 
     // ── Source 2: WhoisFreaks dropped domains from DB (always populated by scan)
     const dbDomains = await prisma.domain.findMany({
@@ -50,7 +44,7 @@ export async function GET() {
         return {
           ...a,
           niche: a.niche ?? nicheMatch.matchedNiche ?? null,
-          nicheMatch: nicheMatch.matched,
+          nicheMatch: nicheMatch.passes,
           opportunityScore: opportunity.opportunityScore,
           maxBid: opportunity.maxBid,
           reason: opportunity.reason,

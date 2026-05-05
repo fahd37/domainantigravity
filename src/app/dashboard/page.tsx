@@ -74,9 +74,28 @@ export default function DashboardPage() {
     setScanning(true);
     try {
       const r=await fetch('/api/cron/scan',{headers:{'x-cron-secret':process.env.NEXT_PUBLIC_CRON_SECRET||'change-me-random-string-32chars'}});
-      const d=await r.json();
-      if(!d.success||!r.ok) alert(`Scan failed:\n${d.log?.join('\n')||d.error||'Unknown'}`);
-      else { alert(`✅ Scan complete — ${d.domainsFound||0} found, ${d.domainsSaved||0} saved`); await fetchAll(); }
+      const data=await r.json();
+      if(!data.success||!r.ok) {
+        alert(`Scan failed:\n${data.log?.join('\n')||data.error||'Unknown'}`);
+      } else {
+        const msg = [
+          `═══ DROP-FEED PIPELINE COMPLETE ═══`,
+          ``,
+          `Total drops downloaded: ${data.totalDrops?.toLocaleString() || data.domainsFound || 0}`,
+          `Niche keyword matches: ${data.nicheMatches || 0}`,
+          `Available to register: ${data.available || 0}`,
+          `DataForSEO scored: ${data.scored || 0}`,
+          `Clean Wayback history: ${data.cleanHistory || 0}`,
+          `Google indexed: ${data.googleIndexed || 0}`,
+          `Queued for purchase: ${data.queued || 0}`,
+          `Saved to database: ${data.domainsSaved || 0}`,
+          `Time: ${data.elapsed || '?'}`,
+          ``,
+          data.topFinds?.length > 0 ? `🏆 Top find: ${data.topFinds[0].domain} (Score: ${data.topFinds[0].score})` : ''
+        ].filter(Boolean).join('\n');
+        alert(msg);
+        await fetchAll();
+      }
     } catch(e) { alert(`Scan failed: ${e}`); } finally { setScanning(false); }
   };
 
@@ -138,10 +157,10 @@ export default function DashboardPage() {
           {/* Sources */}
           <div className="flex flex-wrap gap-2">
             {[
-              { k:"whoisfreaks",l:"WhoisFreaks",a:apis.whoisfreaks },
-              { k:"dataforseo",l:"DataForSEO",a:apis.dataforseo },
-              { k:"googleIndex",l:"Google Index",a:apis.googleIndex },
-              { k:"wayback",l:"Wayback",a:apis.wayback },
+              { k:"whoisfreaks",l:"Drop-Feed",a:apis.whoisfreaks },
+              { k:"dataforseo",l:"Authority",a:apis.dataforseo },
+              { k:"wayback",l:"TimeMachine",a:apis.wayback },
+              { k:"googleIndex",l:"Index Check",a:apis.googleIndex },
             ].map(s=>(
               <span key={s.k} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold border ${s.a?"bg-green-500/10 text-green-400 border-green-500/20":"bg-red-500/10 text-red-400 border-red-500/20"}`}>
                 <span className={`h-1.5 w-1.5 rounded-full ${s.a?"bg-green-500":"bg-red-500"}`}/>{s.l}{s.a?" ✓":" ✗"}

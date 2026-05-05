@@ -81,6 +81,7 @@ export default function AuctionsPage() {
   useEffect(() => {
     if (!autoWatch) return;
     auctions.filter(a => a.opportunityScore >= 70 && !watched.some(w => w.listingId === a.listingId)).forEach(doWatch);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoWatch, auctions]);
 
   async function doWatch(a: Auction) {

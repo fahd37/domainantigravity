@@ -39,7 +39,7 @@ export default function IPTVHunterPage() {
 
   const m = MKT.find(x=>x.id===market) ?? MKT[0];
   const allVol = MKT.reduce((s,x)=>s+x.vol,0);
-  const bestMkt = MKT.sort((a,b)=>b.rate-a.rate)[0];
+
 
   useEffect(() => {
     if (market !== "ALL") fetch(`/api/iptv/markets/${market}`).then(r=>r.json()).then(j=>setLiveData(j.data??null)).catch(()=>setLiveData(null));
@@ -74,7 +74,7 @@ export default function IPTVHunterPage() {
   const kws = liveData?.topKeywords ?? m.kw.map((k,i)=>({keyword:k,volume:Math.round(m.vol/(i+1.5)),cpc:m.cpc*(1-i*0.08)}));
   const totalSearches = liveData?.totalKeywords ?? m.vol;
   const avgCpc = liveData?.avgCPC ?? m.cpc;
-  const topKw = liveData?.topKeyword ?? m.kw[0];
+
   const diff = liveData?.difficulty ?? m.diff;
   const successRate = liveData?.successRate ?? m.rate;
 

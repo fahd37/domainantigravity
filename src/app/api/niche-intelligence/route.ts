@@ -25,10 +25,10 @@ export async function GET() {
     ]);
 
     // Group real DB domains by niche for enrichment
-    const byNiche: Record<string, typeof allDomains> = {};
+    const byNiche: Record<string, (typeof allDomains)[number][]> = {};
     for (const d of allDomains) {
       const key = d.niche?.toLowerCase().replace(/\s+/g, '_') ?? 'unknown';
-      if (!byNiche[key]) byNiche[key] = [];
+      if (!byNiche[key]) byNiche[key] = [] as (typeof allDomains)[number][];
       byNiche[key].push(d);
     }
 
