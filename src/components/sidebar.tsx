@@ -7,17 +7,11 @@ import {
   LayoutDashboard,
   Radar,
   Globe,
-  BarChart3,
   Settings,
   Moon,
   Sun,
   Crosshair,
   Tags,
-  Gavel,
-  Search,
-  FileText,
-  Brain,
-  Tv,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
@@ -25,13 +19,7 @@ import { useEffect, useState } from "react";
 const navItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Hunt", href: "/hunt", icon: Radar },
-  { name: "Auctions", href: "/auctions", icon: Gavel },
-  { name: "Spy", href: "/spy", icon: Search },
-  { name: "Intelligence", href: "/niche-intelligence", icon: Brain },
-  { name: "IPTV Hunter", href: "/iptv-hunter", icon: Tv },
   { name: "Domains", href: "/domains", icon: Globe },
-  { name: "Content", href: "/content", icon: FileText },
-  { name: "Analytics", href: "/analytics", icon: BarChart3 },
   { name: "Niches", href: "/settings/niches", icon: Tags },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
